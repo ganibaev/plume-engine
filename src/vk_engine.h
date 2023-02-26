@@ -41,8 +41,15 @@ public:
 
 	std::vector<VkImageView> _swapchainImageViews;
 
+	VkQueue _graphicsQueue;
+	uint32_t _graphicsQueueFamily;
+
+	VkCommandPool _commandPool;
+	VkCommandBuffer _mainCommandBuffer;
+
 private:
 
 	void init_vulkan();
 	void init_swapchain();
+	void init_commands();
 };

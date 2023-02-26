@@ -43,6 +43,8 @@ void VulkanEngine::init()
 
 	init_swapchain();
 
+	init_commands();
+
 	// everything went fine
 	_isInitialized = true;
 }
@@ -83,6 +85,10 @@ void VulkanEngine::init_vulkan()
 	// get VkDevice handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
 	_device = vkbDevice.device;
+
+	// get Graphics-capable queue using VkBootstrap
+	_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+	_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 }
 
 void VulkanEngine::init_swapchain()
@@ -103,9 +109,26 @@ void VulkanEngine::init_swapchain()
 	_swapchainImageFormat = vkbSwapchain.image_format;
 }
 
+void VulkanEngine::init_commands()
+{
+	// create a command pool
+
+	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+	VK_CHECK( vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_commandPool) );
+
+	// create a default command buffer, which will be used for rendering
+
+	VkCommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(_commandPool, 1);
+
+	VK_CHECK( vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_mainCommandBuffer) );
+}
+
 void VulkanEngine::cleanup()
 {	
 	if (_isInitialized) {
+		vkDestroyCommandPool(_device, _commandPool, nullptr);
+
 		vkDestroySwapchainKHR(_device, _swapchain, nullptr);
 
 		// destroy swapchain resources
