@@ -47,9 +47,15 @@ public:
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
 
+	VkRenderPass _renderPass;
+	std::vector<VkFramebuffer> _framebuffers;
+
 private:
 
 	void init_vulkan();
 	void init_swapchain();
 	void init_commands();
+
+	void init_default_renderpass();
+	void init_framebuffers();
 };
