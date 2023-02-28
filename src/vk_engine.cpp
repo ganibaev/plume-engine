@@ -48,6 +48,8 @@ void VulkanEngine::init()
 
 	init_framebuffers();
 
+	init_sync_structures();
+
 	// everything went fine
 	_isInitialized = true;
 }
@@ -129,7 +131,7 @@ void VulkanEngine::init_commands()
 
 void VulkanEngine::init_default_renderpass()
 {
-	// the renderpass will use this color attachment
+	// the render pass will use this color attachment
 	VkAttachmentDescription color_attachment = {};
 
 	// use format needed by the swapchain 
@@ -200,6 +202,17 @@ void VulkanEngine::init_framebuffers()
 	}
 }
 
+void VulkanEngine::init_sync_structures()
+{
+	// create in the signaled state, so that the first wait call returns immediately
+	VkFenceCreateInfo fenceCreateInfo = vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+	VK_CHECK( vkCreateFence(_device, &fenceCreateInfo, nullptr, &_renderFence) );
+
+	VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphore_create_info();
+	VK_CHECK( vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_renderSemaphore) );
+	VK_CHECK( vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_presentSemaphore) );
+}
+
 void VulkanEngine::cleanup()
 {	
 	if (_isInitialized) {
@@ -227,7 +240,100 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
-	//nothing yet
+	// wait until the GPU has finished rendering the last frame, with timeout of 1 second
+	VK_CHECK( vkWaitForFences(_device, 1, &_renderFence, true, 1000000000) );
+	VK_CHECK( vkResetFences(_device, 1, &_renderFence) );
+
+	// request image to draw to, 1 second timeout
+	uint32_t swapchainImageIndex;
+	VK_CHECK( vkAcquireNextImageKHR(_device, _swapchain, 1000000000, _presentSemaphore, nullptr, &swapchainImageIndex) );
+
+	// we know that everything finished rendering, so we safely reset the command buffer and reuse it
+	VK_CHECK( vkResetCommandBuffer(_mainCommandBuffer, 0) );
+
+	VkCommandBuffer cmd = _mainCommandBuffer;
+	
+	// begin recording the command buffer, letting Vulkan know that we will submit cmd exactly once per frame
+	VkCommandBufferBeginInfo cmdBeginInfo = {};
+	cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	cmdBeginInfo.pNext = nullptr;
+
+	cmdBeginInfo.pInheritanceInfo = nullptr; // no secondary command buffers
+	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	VK_CHECK( vkBeginCommandBuffer(cmd, &cmdBeginInfo) );
+
+	// make clear color dependent on frame number
+	VkClearValue clearValue;
+	float flash = abs(sin(_frameNumber / 120.0f));
+	clearValue.color = { {0.0f, 0.0f, flash, 1.0f} };
+
+	// begin main render pass
+	// use clear color from above and the image under acquired index
+	VkRenderPassBeginInfo rpInfo = {};
+	rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rpInfo.pNext = nullptr;
+
+	rpInfo.renderPass = _renderPass;
+	rpInfo.renderArea.offset.x = 0;
+	rpInfo.renderArea.offset.y = 0;
+	rpInfo.renderArea.extent = _windowExtent;
+	rpInfo.framebuffer = _framebuffers[swapchainImageIndex];
+
+	// connect clear values
+	rpInfo.clearValueCount = 1;
+	rpInfo.pClearValues = &clearValue;
+
+	vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	// finish render pass
+	vkCmdEndRenderPass(cmd);
+	// stop recording to command buffer (we can no longer add commands, but it can now be submitted and executed)
+	VK_CHECK( vkEndCommandBuffer(cmd) );
+
+	// prepare the VkQueue submission
+	// wait for the present semaphore to present image
+	// signal the render semaphore, showing that rendering is finished
+
+	VkSubmitInfo submit = {};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.pNext = nullptr;
+
+	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+	submit.pWaitDstStageMask = &waitStage;
+
+	submit.waitSemaphoreCount = 1;
+	submit.pWaitSemaphores = &_presentSemaphore;
+
+	submit.signalSemaphoreCount = 1;
+	submit.pSignalSemaphores = &_renderSemaphore;
+
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &cmd;
+
+	// submit the buffer
+	// render fence blocks until graphics commands are done
+	VK_CHECK( vkQueueSubmit(_graphicsQueue, 1, &submit, _renderFence) );
+
+	// display image
+	// wait on render semaphore so that rendered image is complete 
+
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.pNext = nullptr;
+
+	presentInfo.pSwapchains = &_swapchain;
+	presentInfo.swapchainCount = 1;
+
+	presentInfo.pWaitSemaphores = &_renderSemaphore;
+	presentInfo.waitSemaphoreCount = 1;
+
+	presentInfo.pImageIndices = &swapchainImageIndex;
+
+	VK_CHECK( vkQueuePresentKHR(_graphicsQueue, &presentInfo) );
+
+	++_frameNumber;
 }
 
 void VulkanEngine::run()

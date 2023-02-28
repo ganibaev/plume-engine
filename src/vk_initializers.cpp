@@ -27,3 +27,22 @@ VkCommandBufferAllocateInfo vkinit::command_buffer_allocate_info(VkCommandPool p
 	cmdAllocInfo.level = level;
 	return cmdAllocInfo;
 }
+
+VkSemaphoreCreateInfo vkinit::semaphore_create_info(VkSemaphoreCreateFlags flags /* = 0 */)
+{
+	VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	semaphoreCreateInfo.pNext = nullptr;
+	semaphoreCreateInfo.flags = flags;
+	return semaphoreCreateInfo;
+}
+
+VkFenceCreateInfo vkinit::fence_create_info(VkFenceCreateFlags flags)
+{
+	VkFenceCreateInfo fenceCreateInfo = {};
+	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceCreateInfo.pNext = nullptr;
+
+	fenceCreateInfo.flags = flags;
+	return fenceCreateInfo;
+}
