@@ -46,3 +46,16 @@ VkFenceCreateInfo vkinit::fence_create_info(VkFenceCreateFlags flags)
 	fenceCreateInfo.flags = flags;
 	return fenceCreateInfo;
 }
+
+VkShaderModuleCreateInfo vkinit::sm_create_info(const std::vector<uint32_t>& buffer)
+{
+	VkShaderModuleCreateInfo smCreateInfo = {};
+	smCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	smCreateInfo.pNext = nullptr;
+
+	// in bytes
+	smCreateInfo.codeSize = buffer.size() * sizeof(uint32_t);
+
+	smCreateInfo.pCode = buffer.data();
+	return smCreateInfo;
+}

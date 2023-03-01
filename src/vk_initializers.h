@@ -4,6 +4,7 @@
 #pragma once
 
 #include <vk_types.h>
+#include <vector>
 
 namespace vkinit {
 
@@ -12,4 +13,6 @@ namespace vkinit {
 
 	VkSemaphoreCreateInfo semaphore_create_info(VkSemaphoreCreateFlags flags = 0);
 	VkFenceCreateInfo fence_create_info(VkFenceCreateFlags flags = 0);
+
+	VkShaderModuleCreateInfo sm_create_info(const std::vector<uint32_t>& buffer);
 }

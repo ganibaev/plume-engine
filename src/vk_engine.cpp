@@ -8,7 +8,9 @@
 
 // This will make initialization much less of a pain
 #include "VkBootstrap.h"
+
 #include <iostream>
+#include <fstream> 
 
 #define VK_CHECK(x)														\
 	do																	\
@@ -49,6 +51,8 @@ void VulkanEngine::init()
 	init_framebuffers();
 
 	init_sync_structures();
+
+	init_pipelines();
 
 	// everything went fine
 	_isInitialized = true;
@@ -213,6 +217,29 @@ void VulkanEngine::init_sync_structures()
 	VK_CHECK( vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_presentSemaphore) );
 }
 
+void VulkanEngine::init_pipelines()
+{
+	VkShaderModule triangleFragShader;
+	if (!load_shader_module("../../shaders/triangle.frag.spv", &triangleFragShader))
+	{
+		std::cout << "Error building triangle fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Triangle fragment shader loaded successfully" << std::endl;
+	}
+
+	VkShaderModule triangleVertexShader;
+	if (!load_shader_module("../../shaders/triangle.vert.spv", &triangleVertexShader))
+	{
+		std::cout << "Error building triangle vertex shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Triangle vertex shader loaded successfully" << std::endl;
+	}
+}
+
 void VulkanEngine::cleanup()
 {	
 	if (_isInitialized) {
@@ -360,3 +387,37 @@ void VulkanEngine::run()
 	}
 }
 
+bool VulkanEngine::load_shader_module(const char* filePath, VkShaderModule* outShaderModule)
+{
+	// open the file, put cursor at the end
+	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open())
+	{
+		return false;
+	}
+
+	// get size of file by looking at the cursor location (gives size in bytes)
+	size_t fileSize = static_cast<size_t>(file.tellg());
+
+	std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+
+	// put cursor at the beginning of the file
+	file.seekg(0);
+
+	// load file into buffer
+	file.read((char*)buffer.data(), fileSize);
+
+	file.close();
+
+	// create a shader module using the buffer
+	VkShaderModuleCreateInfo smCreateInfo = vkinit::sm_create_info(buffer);
+	
+	VkShaderModule shaderModule;
+	if (vkCreateShaderModule(_device, &smCreateInfo, nullptr, &shaderModule) != VK_SUCCESS)
+	{
+		return false;
+	}
+	*outShaderModule = shaderModule;
+	return true;
+}
