@@ -15,4 +15,13 @@ namespace vkinit {
 	VkFenceCreateInfo fence_create_info(VkFenceCreateFlags flags = 0);
 
 	VkShaderModuleCreateInfo sm_create_info(const std::vector<uint32_t>& buffer);
+
+	VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shaderModule);
+	VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info();
+	VkPipelineInputAssemblyStateCreateInfo input_assembly_create_info(VkPrimitiveTopology topology);
+	VkPipelineRasterizationStateCreateInfo rasterization_state_create_info(VkPolygonMode polygonMode, VkCullModeFlags cullMode = VK_CULL_MODE_NONE);
+	VkPipelineMultisampleStateCreateInfo multisampling_state_create_info();
+	
+	VkPipelineColorBlendAttachmentState color_blend_attachment_state();
+	VkPipelineLayoutCreateInfo pipeline_layout_create_info();
 }
