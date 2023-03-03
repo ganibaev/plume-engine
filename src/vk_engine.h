@@ -5,6 +5,42 @@
 
 #include <vk_types.h>
 #include <vector>
+#include <deque>
+#include <functional>
+
+class PipelineBuilder {
+public:
+	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
+	VkPipelineVertexInputStateCreateInfo _vertexInputInfo;
+	VkPipelineInputAssemblyStateCreateInfo _inputAssembly;
+	VkViewport _viewport;
+	VkRect2D _scissor;
+	VkPipelineRasterizationStateCreateInfo _rasterizer;
+	VkPipelineColorBlendAttachmentState _colorBlendAttachment;
+	VkPipelineMultisampleStateCreateInfo _multisampling;
+	VkPipelineLayout _pipelineLayout;
+
+	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
+};
+
+struct DeletionQueue {
+	std::deque<std::function<void()>> deletors;
+
+	void push_function(std::function<void()>&& function)
+	{
+		deletors.push_back(function);
+	}
+
+	void flush()
+	{
+		for (auto& func : deletors)
+		{
+			func();
+		}
+
+		deletors.clear();
+	}
+};
 
 class VulkanEngine {
 public:
@@ -57,8 +93,13 @@ public:
 	bool load_shader_module(const char* filePath, VkShaderModule* outShaderModule);
 
 	VkPipelineLayout _trianglePipelineLayout;
-	VkPipeline _trianglePipeline;
 
+	VkPipeline _trianglePipeline;
+	VkPipeline _redTrianglePipeline;
+
+	int _selectedShaderIndex = 0;
+
+	DeletionQueue _mainDeletionQueue;
 private:
 
 	void init_vulkan();
@@ -71,19 +112,4 @@ private:
 	void init_sync_structures();
 
 	void init_pipelines();
-};
-
-class PipelineBuilder {
-public:
-	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
-	VkPipelineVertexInputStateCreateInfo _vertexInputInfo;
-	VkPipelineInputAssemblyStateCreateInfo _inputAssembly;
-	VkViewport _viewport;
-	VkRect2D _scissor;
-	VkPipelineRasterizationStateCreateInfo _rasterizer;
-	VkPipelineColorBlendAttachmentState _colorBlendAttachment;
-	VkPipelineMultisampleStateCreateInfo _multisampling;
-	VkPipelineLayout _pipelineLayout;
-
-	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
 };
