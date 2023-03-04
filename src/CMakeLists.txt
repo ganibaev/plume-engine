@@ -6,7 +6,9 @@ add_executable(plume
     vk_engine.h
     vk_types.h
     vk_initializers.cpp
-    vk_initializers.h)
+    vk_initializers.h
+    vk_mesh.cpp
+    vk_mesh.h)
 
 
 set_property(TARGET plume PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:plume>")

@@ -8,6 +8,8 @@
 #include <deque>
 #include <functional>
 
+#include "vk_mesh.h"
+
 class PipelineBuilder {
 public:
 	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
@@ -64,6 +66,8 @@ public:
 	//run main loop
 	void run();
 
+	VmaAllocator _allocator;
+
 	VkInstance _instance; // Vulkan library handle
 	VkDebugUtilsMessengerEXT _debug_messenger; 
 	VkPhysicalDevice _chosenGPU; // default GPU
@@ -97,6 +101,9 @@ public:
 	VkPipeline _trianglePipeline;
 	VkPipeline _redTrianglePipeline;
 
+	VkPipeline _meshPipeline;
+	Mesh _triangleMesh;
+
 	int _selectedShaderIndex = 0;
 
 	DeletionQueue _mainDeletionQueue;
@@ -112,4 +119,8 @@ private:
 	void init_sync_structures();
 
 	void init_pipelines();
+
+	void load_meshes();
+
+	void upload_mesh(Mesh& mesh);
 };
