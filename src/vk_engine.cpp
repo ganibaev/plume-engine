@@ -10,7 +10,9 @@
 #include "VkBootstrap.h"
 
 #include <iostream>
-#include <fstream> 
+#include <fstream>
+
+#include <glm/gtx/transform.hpp>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -304,6 +306,20 @@ void VulkanEngine::init_pipelines()
 
 	VK_CHECK( vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_trianglePipelineLayout) );
 
+	// build pipeline layout with push constants
+	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+
+	VkPushConstantRange pushConstant;
+	pushConstant.offset = 0;
+	pushConstant.size = sizeof(MeshPushConstants);
+	pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
+	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
+
+	VK_CHECK( vkCreatePipelineLayout(_device, &meshPipelineLayoutInfo, nullptr, &_meshPipelineLayout) );
+
+
 	// build stage_create_info for vertex and fragment stages
 	// this lets pipeline know about shader modules
 	PipelineBuilder pipelineBuilder;
@@ -374,6 +390,7 @@ void VulkanEngine::init_pipelines()
 
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragShader));
+	pipelineBuilder._pipelineLayout = _meshPipelineLayout;
 
 	_meshPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
 
@@ -390,6 +407,7 @@ void VulkanEngine::init_pipelines()
 		vkDestroyPipeline(_device, _meshPipeline, nullptr);
 
 		vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+		vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
 		});
 
 
@@ -405,9 +423,9 @@ void VulkanEngine::load_meshes()
 	_triangleMesh._vertices[1].position = { -1.0f, 1.0f, 0.0f };
 	_triangleMesh._vertices[2].position = { 0.0f, -1.0f, 0.0f };
 
-	_triangleMesh._vertices[0].color = { 0.0f, 1.0f, 0.0f };
-	_triangleMesh._vertices[1].color = { 0.0f, 1.0f, 0.0f };
-	_triangleMesh._vertices[2].color = { 0.0f, 1.0f, 0.0f };
+	_triangleMesh._vertices[0].color = { 0.5f, 0.0f, 0.5f };
+	_triangleMesh._vertices[1].color = { 0.5f, 0.0f, 0.5f };
+	_triangleMesh._vertices[2].color = { 0.5f, 0.0f, 0.5f };
 
 	// no vertex normals just yet
 
@@ -513,7 +531,25 @@ void VulkanEngine::draw()
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(cmd, 0, 1, &_triangleMesh._vertexBuffer._buffer, &offset);
 
+	// fill push constant
+	glm::vec3 camPos = { 0.0f, 0.0f, -2.0f };
+	glm::mat4 view = glm::translate(glm::mat4(1.0f), camPos);
+
+	// camera projection
+	glm::mat4 projection = glm::perspective(glm::radians(70.0f), static_cast<float>(_windowExtent.width) / _windowExtent.height, 0.1f, 200.0f);
+	projection[1][1] *= -1;
 	
+	glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(-_frameNumber * 0.4f), glm::vec3(0, 1, 0));
+
+	// final matrix
+	glm::mat4 meshMatrix = projection * view * model;
+
+	MeshPushConstants constants;
+	constants.render_matrix = meshMatrix;
+
+	// upload push constants to the GPU
+	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
 	vkCmdDraw(cmd, _triangleMesh._vertices.size(), 1, 0, 0);
 
 	// finish render pass

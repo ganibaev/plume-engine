@@ -10,6 +10,8 @@
 
 #include "vk_mesh.h"
 
+#include <glm/glm.hpp>
+
 class PipelineBuilder {
 public:
 	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
@@ -23,6 +25,12 @@ public:
 	VkPipelineLayout _pipelineLayout;
 
 	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
+};
+
+struct MeshPushConstants
+{
+	glm::vec4 data;
+	glm::mat4 render_matrix;
 };
 
 struct DeletionQueue {
@@ -97,6 +105,7 @@ public:
 	bool load_shader_module(const char* filePath, VkShaderModule* outShaderModule);
 
 	VkPipelineLayout _trianglePipelineLayout;
+	VkPipelineLayout _meshPipelineLayout;
 
 	VkPipeline _trianglePipeline;
 	VkPipeline _redTrianglePipeline;
