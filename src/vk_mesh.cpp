@@ -1,5 +1,8 @@
 #include "vk_mesh.h"
 
+#include "tiny_obj_loader.h"
+#include <iostream>
+
 VertexInputDescription Vertex::get_vertex_description()
 {
 	VertexInputDescription description;
@@ -37,4 +40,70 @@ VertexInputDescription Vertex::get_vertex_description()
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);
 	return description;
+}
+
+bool Mesh::load_from_obj(const char* filePath)
+{
+	tinyobj::attrib_t vertexAttributes;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+
+	std::string warn;
+	std::string err;
+
+	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath, nullptr);
+
+	if (!warn.empty())
+	{
+		std::cout << "WARNING: " << warn << std::endl;
+	}
+
+	if (!err.empty())
+	{
+		std::cout << "ERROR: " << err << std::endl;
+		return false;
+	}
+
+	for (size_t s = 0; s < shapes.size(); ++s)
+	{
+		size_t indexOffset = 0;
+		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f)
+		{
+			constexpr int verticesPerFace = 3;
+
+			for (size_t v = 0; v < verticesPerFace; ++v)
+			{
+				// access the vertex
+				tinyobj::index_t idx = shapes[s].mesh.indices[indexOffset + v];
+
+				// positions
+				tinyobj::real_t vx = vertexAttributes.vertices[3 * idx.vertex_index + 0];
+				tinyobj::real_t vy = vertexAttributes.vertices[3 * idx.vertex_index + 1];
+				tinyobj::real_t vz = vertexAttributes.vertices[3 * idx.vertex_index + 2];
+
+				// normals
+				tinyobj::real_t nx = vertexAttributes.normals[3 * idx.normal_index + 0];
+				tinyobj::real_t ny = vertexAttributes.normals[3 * idx.normal_index + 1];
+				tinyobj::real_t nz = vertexAttributes.normals[3 * idx.normal_index + 2];
+
+				// copy into a Vertex
+				Vertex newVertex;
+				newVertex.position.x = vx;
+				newVertex.position.y = vy;
+				newVertex.position.z = vz;
+
+				newVertex.normal.x = nx;
+				newVertex.normal.y = ny;
+				newVertex.normal.z = nz;
+
+				// we will basically draw a normal buffer
+				newVertex.color = newVertex.normal;
+
+				_vertices.push_back(newVertex);
+			}
+			indexOffset += verticesPerFace;
+		}
+	}
+
+	return true;
 }

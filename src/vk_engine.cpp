@@ -134,6 +134,31 @@ void VulkanEngine::init_swapchain()
 	_mainDeletionQueue.push_function([=]() {
 		vkDestroySwapchainKHR(_device, _swapchain, nullptr);
 		});
+
+	VkExtent3D depthImageExtent = {
+		_windowExtent.width,
+		_windowExtent.height,
+		1
+	};
+
+	_depthFormat = VK_FORMAT_D32_SFLOAT;
+
+	VkImageCreateInfo dImageInfo = vkinit::image_create_info(_depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
+
+	VmaAllocationCreateInfo dimage_allocinfo = {};
+	dimage_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	dimage_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	vmaCreateImage(_allocator, &dImageInfo, &dimage_allocinfo, &_depthImage._image, &_depthImage._allocation, nullptr);
+
+	VkImageViewCreateInfo dview_info = vkinit::image_view_create_info(_depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+	VK_CHECK( vkCreateImageView(_device, &dview_info, nullptr, &_depthImageView) );
+
+	_mainDeletionQueue.push_function([=]() {
+		vkDestroyImageView(_device, _depthImageView, nullptr);
+		vmaDestroyImage(_allocator, _depthImage._image, _depthImage._allocation);
+	});
 }
 
 void VulkanEngine::init_commands()
@@ -185,18 +210,57 @@ void VulkanEngine::init_default_renderpass()
 	color_attachment_ref.attachment = 0;
 	color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	VkAttachmentDescription depth_attachment = {};
+	depth_attachment.flags = 0;
+	depth_attachment.format = _depthFormat;
+	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depth_attachment_ref = {};
+	depth_attachment_ref.attachment = 1;
+	depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
 	// create only 1 subpass, which is the minimum
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &color_attachment_ref;
+	subpass.pDepthStencilAttachment = &depth_attachment_ref;
+
+	VkSubpassDependency color_dependency = {};
+	color_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	color_dependency.dstSubpass = 0;
+	color_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	color_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	color_dependency.srcAccessMask = 0;
+	color_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkSubpassDependency depth_dependency = {};
+	depth_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	depth_dependency.dstSubpass = 0;
+	depth_dependency.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	depth_dependency.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	depth_dependency.srcAccessMask = 0;
+	depth_dependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	VkSubpassDependency dependencies[2] = { color_dependency, depth_dependency };
+
+	VkAttachmentDescription attachments[2] = { color_attachment, depth_attachment };
 
 	VkRenderPassCreateInfo render_pass_info = {};
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
 	// connect color attachment to render pass
-	render_pass_info.attachmentCount = 1;
-	render_pass_info.pAttachments = &color_attachment;
+	render_pass_info.attachmentCount = 2;
+	render_pass_info.pAttachments = &attachments[0];
+	// connect dependencies
+	render_pass_info.dependencyCount = 2;
+	render_pass_info.pDependencies = &dependencies[0];
 	// connect subpass
 	render_pass_info.subpassCount = 1;
 	render_pass_info.pSubpasses = &subpass;
@@ -227,7 +291,11 @@ void VulkanEngine::init_framebuffers()
 
 	// create a framebuffer for each swapchain image view
 	for (size_t i = 0; i < swapchain_imagecount; ++i) {
-		fb_info.pAttachments = &_swapchainImageViews[i];
+		VkImageView attachments[2] = { _swapchainImageViews[i], _depthImageView };
+
+		fb_info.pAttachments = &attachments[0];
+		fb_info.attachmentCount = 2;
+
 		VK_CHECK( vkCreateFramebuffer(_device, &fb_info, nullptr, &_framebuffers[i]) );
 
 		_mainDeletionQueue.push_function([=]() {
@@ -269,42 +337,7 @@ void VulkanEngine::init_pipelines()
 		std::cout << "Triangle fragment shader loaded successfully" << std::endl;
 	}
 
-	VkShaderModule triangleVertexShader;
-	if (!load_shader_module("../../shaders/colored_triangle.vert.spv", &triangleVertexShader))
-	{
-		std::cout << "Error building triangle vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Triangle vertex shader loaded successfully" << std::endl;
-	}
 
-	VkShaderModule redTriangleFragShader;
-	if (!load_shader_module("../../shaders/triangle.frag.spv", &redTriangleFragShader))
-	{
-		std::cout << "Error building triangle fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Red Triangle fragment shader loaded successfully" << std::endl;
-	}
-
-	VkShaderModule redTriangleVertexShader;
-	if (!load_shader_module("../../shaders/triangle.vert.spv", &redTriangleVertexShader))
-	{
-		std::cout << "Error building triangle vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Red Triangle vertex shader loaded successfully" << std::endl;
-	}
-
-	// build pipeline layout
-	// controls shader inputs/outputs
-	// no descriptor sets yet
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
-
-	VK_CHECK( vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_trianglePipelineLayout) );
 
 	// build pipeline layout with push constants
 	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
@@ -323,9 +356,6 @@ void VulkanEngine::init_pipelines()
 	// build stage_create_info for vertex and fragment stages
 	// this lets pipeline know about shader modules
 	PipelineBuilder pipelineBuilder;
-
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, triangleVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragShader));
 
 	// not using tricky vertex input yet
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
@@ -352,18 +382,9 @@ void VulkanEngine::init_pipelines()
 	// no blending, write to rgba
 	pipelineBuilder._colorBlendAttachment = vkinit::color_blend_attachment_state();
 
-	// use previously created layout
-	pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
+	// default depth testing
+	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	// build the pipeline!!
-	_trianglePipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
-
-	pipelineBuilder._shaderStages.clear();
-
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, redTriangleVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, redTriangleFragShader));
-
-	_redTrianglePipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
 
 	// build mesh pipeline 
 
@@ -395,18 +416,13 @@ void VulkanEngine::init_pipelines()
 	_meshPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
 
 	// shader modules are now built into the pipelines, we don't need them anymore
-	vkDestroyShaderModule(_device, redTriangleVertexShader, nullptr);
-	vkDestroyShaderModule(_device, redTriangleFragShader, nullptr);
-	vkDestroyShaderModule(_device, triangleVertexShader, nullptr);
+
 	vkDestroyShaderModule(_device, meshVertShader, nullptr);
 	vkDestroyShaderModule(_device, triangleFragShader, nullptr);
 
 	_mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(_device, _redTrianglePipeline, nullptr);
-		vkDestroyPipeline(_device, _trianglePipeline, nullptr);
 		vkDestroyPipeline(_device, _meshPipeline, nullptr);
 
-		vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
 		vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
 		});
 
@@ -427,9 +443,10 @@ void VulkanEngine::load_meshes()
 	_triangleMesh._vertices[1].color = { 0.5f, 0.0f, 0.5f };
 	_triangleMesh._vertices[2].color = { 0.5f, 0.0f, 0.5f };
 
-	// no vertex normals just yet
+	_monkeyMesh.load_from_obj("../../assets/VG14_3.obj");
 
 	upload_mesh(_triangleMesh);
+	upload_mesh(_monkeyMesh);
 }
 
 void VulkanEngine::upload_mesh(Mesh& mesh)
@@ -507,21 +524,21 @@ void VulkanEngine::draw()
 	float flash = abs(sin(_frameNumber / 120.0f));
 	clearValue.color = { {0.0f, 0.0f, flash, 1.0f} };
 
+	VkClearValue depthClear;
+	depthClear.depthStencil.depth = 1.0f;
+
 	// begin main render pass
 	// use clear color from above and the image under acquired index
-	VkRenderPassBeginInfo rpInfo = {};
-	rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	rpInfo.pNext = nullptr;
-
-	rpInfo.renderPass = _renderPass;
-	rpInfo.renderArea.offset.x = 0;
-	rpInfo.renderArea.offset.y = 0;
-	rpInfo.renderArea.extent = _windowExtent;
-	rpInfo.framebuffer = _framebuffers[swapchainImageIndex];
+	VkRenderPassBeginInfo rpInfo = vkinit::render_pass_begin_info(_renderPass, _windowExtent, _framebuffers[swapchainImageIndex]);
 
 	// connect clear values
-	rpInfo.clearValueCount = 1;
-	rpInfo.pClearValues = &clearValue;
+	rpInfo.clearValueCount = 2;
+
+	VkClearValue clearValues[2] = { clearValue, depthClear };
+
+	rpInfo.pClearValues = &clearValues[0];
+
+	// ======================================== RENDER PASS ========================================
 
 	vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -529,10 +546,10 @@ void VulkanEngine::draw()
 
 	// bind mesh vertex buffer at 0
 	VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(cmd, 0, 1, &_triangleMesh._vertexBuffer._buffer, &offset);
+	vkCmdBindVertexBuffers(cmd, 0, 1, &_monkeyMesh._vertexBuffer._buffer, &offset);
 
 	// fill push constant
-	glm::vec3 camPos = { 0.0f, 0.0f, -2.0f };
+	glm::vec3 camPos = { 0.0f, -0.85f, -1.25f };
 	glm::mat4 view = glm::translate(glm::mat4(1.0f), camPos);
 
 	// camera projection
@@ -550,10 +567,14 @@ void VulkanEngine::draw()
 	// upload push constants to the GPU
 	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
 
-	vkCmdDraw(cmd, _triangleMesh._vertices.size(), 1, 0, 0);
+	vkCmdDraw(cmd, _monkeyMesh._vertices.size(), 1, 0, 0);
 
 	// finish render pass
 	vkCmdEndRenderPass(cmd);
+
+	// ======================================== END RENDER PASS ========================================
+
+
 	// stop recording to command buffer (we can no longer add commands, but it can now be submitted and executed)
 	VK_CHECK( vkEndCommandBuffer(cmd) );
 
@@ -622,17 +643,6 @@ void VulkanEngine::run()
 			if (e.type == SDL_QUIT)
 			{
 				bQuit = true;
-			}
-			else if (e.type == SDL_KEYDOWN)
-			{
-				if (e.key.keysym.sym == SDLK_SPACE)
-				{
-					++_selectedShaderIndex;
-					if (_selectedShaderIndex > 1)
-					{
-						_selectedShaderIndex = 0;
-					}
-				}
 			}
 		}
 
@@ -710,6 +720,7 @@ VkPipeline PipelineBuilder::buildPipeline(VkDevice device, VkRenderPass pass)
 	pipelineInfo.pRasterizationState = &_rasterizer;
 	pipelineInfo.pMultisampleState = &_multisampling;
 	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDepthStencilState = &_depthStencil;
 	pipelineInfo.layout = _pipelineLayout;
 	pipelineInfo.renderPass = pass;
 	pipelineInfo.subpass = 0;

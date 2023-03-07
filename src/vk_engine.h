@@ -22,8 +22,9 @@ public:
 	VkPipelineRasterizationStateCreateInfo _rasterizer;
 	VkPipelineColorBlendAttachmentState _colorBlendAttachment;
 	VkPipelineMultisampleStateCreateInfo _multisampling;
+	VkPipelineDepthStencilStateCreateInfo _depthStencil;
 	VkPipelineLayout _pipelineLayout;
-
+	
 	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
 };
 
@@ -89,6 +90,10 @@ public:
 
 	std::vector<VkImageView> _swapchainImageViews;
 
+	VkImageView _depthImageView;
+	AllocatedImage _depthImage;
+	VkFormat _depthFormat;
+
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
@@ -104,16 +109,12 @@ public:
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, VkShaderModule* outShaderModule);
 
-	VkPipelineLayout _trianglePipelineLayout;
 	VkPipelineLayout _meshPipelineLayout;
-
-	VkPipeline _trianglePipeline;
-	VkPipeline _redTrianglePipeline;
 
 	VkPipeline _meshPipeline;
 	Mesh _triangleMesh;
+	Mesh _monkeyMesh;
 
-	int _selectedShaderIndex = 0;
 
 	DeletionQueue _mainDeletionQueue;
 private:
