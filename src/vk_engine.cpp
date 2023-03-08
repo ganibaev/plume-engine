@@ -671,8 +671,7 @@ Mesh* VulkanEngine::get_mesh(const std::string& name)
 
 void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int count)
 {
-	glm::vec3 camPos = { 0.0f, -6.0f, -10.0f };
-	glm::mat4 view = glm::translate(glm::mat4(1.0f), camPos);
+	glm::mat4 view = glm::translate(glm::mat4(1.0f), _camPos);
 
 	glm::mat4 projection = glm::perspective(glm::radians(70.0f), _windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, 200.0f);
 	projection[1][1] *= -1;
@@ -714,22 +713,54 @@ void VulkanEngine::run()
 {
 	SDL_Event e;
 	bool bQuit = false;
-
+	bool keyDown = false;
+	SDL_Keycode sym = 0;
 	//main loop
 	while (!bQuit)
 	{
 		//Handle events on queue
 		while (SDL_PollEvent(&e) != 0)
 		{
-			//if (e.type == SDL_KEYDOWN)
-			//{
-			//	std::cout << "The key has been pressed! It's " << static_cast<char>(e.key.keysym.sym) << std::endl;
-			//}
-			
-			//close the window when user alt-f4s or clicks the X button			
-			if (e.type == SDL_QUIT)
+			switch (e.type)
 			{
+			case SDL_QUIT:
 				bQuit = true;
+				break;
+			case SDL_KEYDOWN:
+				sym = e.key.keysym.sym;
+				keyDown = true;
+				break;
+			case SDL_KEYUP:
+				keyDown = false;
+				break;
+			default:
+				break;
+			}
+		}
+		if (keyDown)
+		{
+			switch (sym)
+			{
+			case SDLK_LSHIFT:
+				_camPos.y -= _camSpeed;
+				break;
+			case SDLK_LCTRL:
+				_camPos.y += _camSpeed;
+				break;
+			case SDLK_w:
+				_camPos.z += _camSpeed;
+				break;
+			case SDLK_s:
+				_camPos.z -= _camSpeed;
+				break;
+			case SDLK_a:
+				_camPos.x += _camSpeed;
+				break;
+			case SDLK_d:
+				_camPos.x -= _camSpeed;
+				break;
+			default:
+				break;
 			}
 		}
 

@@ -72,6 +72,8 @@ public:
 
 	bool _isInitialized{ false };
 	int _frameNumber {0};
+	
+	constexpr static float _camSpeed = 0.2f;
 
 	VkExtent2D _windowExtent{ 1700 , 900 };
 
@@ -96,6 +98,8 @@ public:
 	VkPhysicalDevice _chosenGPU; // default GPU
 	VkDevice _device; // commands will be executed on this 
 	VkSurfaceKHR _surface; // window surface
+
+	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
 
 	VkSwapchainKHR _swapchain;
 
