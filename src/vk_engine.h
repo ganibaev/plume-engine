@@ -7,6 +7,7 @@
 #include <vector>
 #include <deque>
 #include <functional>
+#include <string>
 
 #include "vk_mesh.h"
 
@@ -26,6 +27,19 @@ public:
 	VkPipelineLayout _pipelineLayout;
 	
 	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
+};
+
+struct Material
+{
+	VkPipeline pipeline;
+	VkPipelineLayout pipelineLayout;
+};
+
+struct RenderObject
+{
+	Mesh* mesh;
+	Material* material;
+	glm::mat4 transformMatrix;
 };
 
 struct MeshPushConstants
@@ -111,10 +125,19 @@ public:
 
 	VkPipelineLayout _meshPipelineLayout;
 
-	VkPipeline _meshPipeline;
-	Mesh _triangleMesh;
-	Mesh _monkeyMesh;
+	std::vector<RenderObject> _renderables;
 
+	std::unordered_map<std::string, Mesh> _meshes;
+	std::unordered_map<std::string, Material> _materials;
+
+	// create material and add to the map
+	Material* create_material(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
+
+	Material* get_material(const std::string& name);
+
+	Mesh* get_mesh(const std::string& name);
+
+	void draw_objects(VkCommandBuffer cmd, RenderObject* first, int count);
 
 	DeletionQueue _mainDeletionQueue;
 private:
@@ -129,6 +152,8 @@ private:
 	void init_sync_structures();
 
 	void init_pipelines();
+
+	void init_scene();
 
 	void load_meshes();
 
