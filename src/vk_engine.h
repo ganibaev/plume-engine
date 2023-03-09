@@ -6,6 +6,7 @@
 #include <vk_types.h>
 #include <vector>
 #include <deque>
+#include <tuple>
 #include <functional>
 #include <string>
 
@@ -40,6 +41,11 @@ struct RenderObject
 	Mesh* mesh;
 	Material* material;
 	glm::mat4 transformMatrix;
+
+	bool operator<(const RenderObject& other) const
+	{
+		return std::tie(material, mesh) < std::tie(other.material, other.mesh);
+	}
 };
 
 struct MeshPushConstants

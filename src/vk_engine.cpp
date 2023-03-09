@@ -469,9 +469,9 @@ void VulkanEngine::init_scene()
 
 	_renderables.push_back(monkey);
 
-	for (int x = -20; x <= 20; ++x)
+	for (int x = -30; x <= 30; ++x)
 	{
-		for (int y = -20; y <= 20; ++y)
+		for (int y = -30; y <= 30; ++y)
 		{
 			RenderObject triangle;
 			triangle.mesh = get_mesh("triangle");
@@ -557,8 +557,8 @@ void VulkanEngine::draw()
 
 	// make clear color dependent on frame number
 	VkClearValue clearValue;
-	float flash = abs(sin(_frameNumber / 120.0f));
-	clearValue.color = { {0.0f, 0.0f, flash, 1.0f} };
+	// float flash = abs(sin(_frameNumber / 120.0f));
+	clearValue.color = { { 2.0f / 255.0f, 150.0f / 255.0f, 254.0f / 255.0f, 1.0f } };
 
 	VkClearValue depthClear;
 	depthClear.depthStencil.depth = 1.0f;
@@ -573,6 +573,8 @@ void VulkanEngine::draw()
 	VkClearValue clearValues[2] = { clearValue, depthClear };
 
 	rpInfo.pClearValues = &clearValues[0];
+
+	std::sort(_renderables.begin(), _renderables.end());
 
 	// ======================================== RENDER PASS ========================================
 

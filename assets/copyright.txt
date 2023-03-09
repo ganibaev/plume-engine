@@ -9,6 +9,3 @@ after loading and welding colocated vertices
 
 ------------------
 Converted to OBJ by Morgan McGuire using Mineways (http://mineways.com)
-
-Sunflower model is downloaded from
-https://www.turbosquid.com/3d-models/sunflower-plant-sun-3d-model/545619
