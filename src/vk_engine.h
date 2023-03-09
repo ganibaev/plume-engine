@@ -54,6 +54,17 @@ struct MeshPushConstants
 	glm::mat4 render_matrix;
 };
 
+constexpr unsigned int FRAME_OVERLAP = 2;
+
+struct FrameData
+{
+	VkSemaphore _presentSemaphore, _renderSemaphore;
+	VkFence _renderFence;
+
+	VkCommandPool _commandPool;
+	VkCommandBuffer _mainCommandBuffer;
+};
+
 struct DeletionQueue {
 	std::deque<std::function<void()>> deletors;
 
@@ -121,14 +132,11 @@ public:
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
-	VkCommandPool _commandPool;
-	VkCommandBuffer _mainCommandBuffer;
+	FrameData _frames[FRAME_OVERLAP];
+	FrameData& get_current_frame();
 
 	VkRenderPass _renderPass;
 	std::vector<VkFramebuffer> _framebuffers;
-
-	VkSemaphore _presentSemaphore, _renderSemaphore;
-	VkFence _renderFence;
 
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, VkShaderModule* outShaderModule);
