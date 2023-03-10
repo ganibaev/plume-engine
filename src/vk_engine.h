@@ -56,6 +56,13 @@ struct MeshPushConstants
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
+struct GPUCameraData
+{
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::mat4 viewproj;
+};
+
 struct FrameData
 {
 	VkSemaphore _presentSemaphore, _renderSemaphore;
@@ -63,6 +70,10 @@ struct FrameData
 
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
+
+	AllocatedBuffer _cameraBuffer;
+
+	VkDescriptorSet _globalDescriptor;
 };
 
 struct DeletionQueue {
@@ -118,6 +129,9 @@ public:
 
 	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
 
+	VkDescriptorSetLayout _globalSetLayout;
+	VkDescriptorPool _descriptorPool;
+
 	VkSwapchainKHR _swapchain;
 
 	std::vector<VkImage> _swapchainImages;
@@ -143,6 +157,8 @@ public:
 
 	VkPipelineLayout _meshPipelineLayout;
 
+	AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memUsage);
+	
 	std::vector<RenderObject> _renderables;
 
 	std::unordered_map<std::string, Mesh> _meshes;
@@ -168,6 +184,8 @@ private:
 	void init_framebuffers();
 
 	void init_sync_structures();
+
+	void init_descriptors();
 
 	void init_pipelines();
 
