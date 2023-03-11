@@ -63,6 +63,15 @@ struct GPUCameraData
 	glm::mat4 viewproj;
 };
 
+struct GPUSceneData
+{
+	glm::vec4 fogColor; // w for exponent
+	glm::vec4 fogDistances; // x -- min, y -- max
+	glm::vec4 ambientColor;
+	glm::vec4 sunlightDirection; // w for sun power
+	glm::vec4 sunlightColor;
+};
+
 struct FrameData
 {
 	VkSemaphore _presentSemaphore, _renderSemaphore;
@@ -127,7 +136,14 @@ public:
 	VkDevice _device; // commands will be executed on this 
 	VkSurfaceKHR _surface; // window surface
 
+	VkPhysicalDeviceProperties _gpuProperties;
+
 	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
+
+	GPUSceneData _sceneParameters;
+	AllocatedBuffer _sceneParameterBuffer;
+
+	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	VkDescriptorSetLayout _globalSetLayout;
 	VkDescriptorPool _descriptorPool;
