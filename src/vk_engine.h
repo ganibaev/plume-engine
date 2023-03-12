@@ -72,6 +72,11 @@ struct GPUSceneData
 	glm::vec4 sunlightColor;
 };
 
+struct GPUObjectData
+{
+	glm::mat4 modelMatrix;
+};
+
 struct FrameData
 {
 	VkSemaphore _presentSemaphore, _renderSemaphore;
@@ -83,6 +88,9 @@ struct FrameData
 	AllocatedBuffer _cameraBuffer;
 
 	VkDescriptorSet _globalDescriptor;
+
+	AllocatedBuffer _objectBuffer;
+	VkDescriptorSet _objectDescriptor;
 };
 
 struct DeletionQueue {
@@ -146,6 +154,7 @@ public:
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	VkDescriptorSetLayout _globalSetLayout;
+	VkDescriptorSetLayout _objectSetLayout;
 	VkDescriptorPool _descriptorPool;
 
 	VkSwapchainKHR _swapchain;

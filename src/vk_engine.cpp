@@ -102,7 +102,13 @@ void VulkanEngine::init_vulkan()
 
 	// create final Vulkan device
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
-	vkb::Device vkbDevice = deviceBuilder.build().value();
+
+	VkPhysicalDeviceShaderDrawParametersFeatures shaderDrawParametersFeatures = {};
+	shaderDrawParametersFeatures.pNext = nullptr;
+	shaderDrawParametersFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
+	shaderDrawParametersFeatures.shaderDrawParameters = VK_TRUE;
+
+	vkb::Device vkbDevice = deviceBuilder.add_pNext(&shaderDrawParametersFeatures).build().value();
 
 	// get VkDevice handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
@@ -346,7 +352,8 @@ void VulkanEngine::init_descriptors()
 {
 	std::vector<VkDescriptorPoolSize> poolSizes = { 
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10 }
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 }
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo = {};
@@ -375,12 +382,28 @@ void VulkanEngine::init_descriptors()
 
 	vkCreateDescriptorSetLayout(_device, &setInfo, nullptr, &_globalSetLayout);
 
+
+	VkDescriptorSetLayoutBinding objectBufferBinding = vkinit::descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+	
+	VkDescriptorSetLayoutCreateInfo objSetInfo = {};
+	objSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	objSetInfo.pNext = nullptr;
+
+	objSetInfo.bindingCount = 1;
+	objSetInfo.flags = 0;
+	objSetInfo.pBindings = &objectBufferBinding;
+
+	vkCreateDescriptorSetLayout(_device, &objSetInfo, nullptr, &_objectSetLayout);
+
 	const size_t sceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(GPUSceneData));
 
 	_sceneParameterBuffer = create_buffer(sceneParamBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
+		constexpr int MAX_OBJECTS = 10000;
+		_frames[i]._objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
 		_frames[i]._cameraBuffer = create_buffer(sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 		
 		VkDescriptorSetAllocateInfo allocInfo = {};
@@ -392,6 +415,15 @@ void VulkanEngine::init_descriptors()
 
 		vkAllocateDescriptorSets(_device, &allocInfo, &_frames[i]._globalDescriptor);
 
+		VkDescriptorSetAllocateInfo objSetAllocInfo = {};
+		objSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		objSetAllocInfo.pNext = nullptr;
+		objSetAllocInfo.descriptorPool = _descriptorPool;
+		objSetAllocInfo.descriptorSetCount = 1;
+		objSetAllocInfo.pSetLayouts = &_objectSetLayout;
+
+		vkAllocateDescriptorSets(_device, &objSetAllocInfo, &_frames[i]._objectDescriptor);
+
 		VkDescriptorBufferInfo cameraInfo = {};
 		cameraInfo.buffer = _frames[i]._cameraBuffer._buffer;
 		cameraInfo.offset = 0;
@@ -402,14 +434,22 @@ void VulkanEngine::init_descriptors()
 		sceneInfo.offset = 0;
 		sceneInfo.range = sizeof(GPUSceneData);
 
+		VkDescriptorBufferInfo objBufferInfo = {};
+		objBufferInfo.buffer = _frames[i]._objectBuffer._buffer;
+		objBufferInfo.offset = 0;
+		objBufferInfo.range = sizeof(GPUObjectData) * MAX_OBJECTS;
+
 		VkWriteDescriptorSet cameraWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, _frames[i]._globalDescriptor, &cameraInfo, 0);
 		VkWriteDescriptorSet sceneWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, _frames[i]._globalDescriptor, &sceneInfo, 1);
+		
+		VkWriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, _frames[i]._objectDescriptor, &objBufferInfo, 0);
 
-		VkWriteDescriptorSet setWrites[] = { cameraWrite, sceneWrite };
+		VkWriteDescriptorSet setWrites[] = { cameraWrite, sceneWrite, objectWrite };
 
-		vkUpdateDescriptorSets(_device, 2, setWrites, 0, nullptr);
+		vkUpdateDescriptorSets(_device, 3, setWrites, 0, nullptr);
 		
 		_mainDeletionQueue.push_function([=]() {
+			vmaDestroyBuffer(_allocator, _frames[i]._objectBuffer._buffer, _frames[i]._objectBuffer._allocation);
 			vmaDestroyBuffer(_allocator, _frames[i]._cameraBuffer._buffer, _frames[i]._cameraBuffer._allocation);
 		});
 	}
@@ -417,6 +457,7 @@ void VulkanEngine::init_descriptors()
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyBuffer(_allocator, _sceneParameterBuffer._buffer, _sceneParameterBuffer._allocation);
 		vkDestroyDescriptorSetLayout(_device, _globalSetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(_device, _objectSetLayout, nullptr);
 		vkDestroyDescriptorPool(_device, _descriptorPool, nullptr);
 	});
 }
@@ -445,8 +486,10 @@ void VulkanEngine::init_pipelines()
 	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
 	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
 
-	meshPipelineLayoutInfo.setLayoutCount = 1;
-	meshPipelineLayoutInfo.pSetLayouts = &_globalSetLayout;
+	VkDescriptorSetLayout setLayouts[] = { _globalSetLayout, _objectSetLayout };
+
+	meshPipelineLayoutInfo.setLayoutCount = 2;
+	meshPipelineLayoutInfo.pSetLayouts = setLayouts;
 
 	VK_CHECK( vkCreatePipelineLayout(_device, &meshPipelineLayoutInfo, nullptr, &_meshPipelineLayout) );
 
@@ -822,13 +865,29 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 
 	_sceneParameters.ambientColor = { sin(framed), 0.0f, cos(framed), 1.0f };
 	char* sceneData;
+
 	vmaMapMemory(_allocator, _sceneParameterBuffer._allocation, (void**)&sceneData);
+
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
 	sceneData += pad_uniform_buffer_size(sizeof(GPUSceneData)) * frameIndex;
 	memcpy(sceneData, &_sceneParameters, sizeof(GPUSceneData));
 
 	vmaUnmapMemory(_allocator, _sceneParameterBuffer._allocation);
+
+	void* objectData;
+
+	vmaMapMemory(_allocator, get_current_frame()._objectBuffer._allocation, &objectData);
+
+	GPUObjectData* objectSSBO = reinterpret_cast<GPUObjectData*>(objectData);
+
+	for (int i = 0; i < count; ++i)
+	{
+		RenderObject& object = first[i];
+		objectSSBO[i].modelMatrix = object.transformMatrix;
+	}
+
+	vmaUnmapMemory(_allocator, get_current_frame()._objectBuffer._allocation);
 
 	Mesh* lastMesh = nullptr;
 	Material* lastMaterial = nullptr;
@@ -842,9 +901,12 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline);
 			lastMaterial = object.material;
 			
+			// scene & camera descriptor
 			uint32_t uniformOffset = pad_uniform_buffer_size(sizeof(GPUSceneData)) * frameIndex;
-
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout, 0, 1, &get_current_frame()._globalDescriptor, 1, &uniformOffset);
+
+			// object descriptor
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout, 1, 1, &get_current_frame()._objectDescriptor, 0, nullptr);
 		}
 
 		glm::mat4 model = object.transformMatrix;
@@ -863,7 +925,7 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 			vkCmdBindVertexBuffers(cmd, 0, 1, &object.mesh->_vertexBuffer._buffer, &offset);
 		}
 
-		vkCmdDraw(cmd, object.mesh->_vertices.size(), 1, 0, 0);
+		vkCmdDraw(cmd, object.mesh->_vertices.size(), 1, 0, i);
 	}
 }
 
