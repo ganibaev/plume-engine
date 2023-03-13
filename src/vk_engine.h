@@ -36,6 +36,13 @@ struct Material
 	VkPipelineLayout pipelineLayout;
 };
 
+struct UploadContext
+{
+	VkFence _uploadFence;
+	VkCommandPool _commandPool;
+	VkCommandBuffer _commandBuffer;
+};
+
 struct RenderObject
 {
 	Mesh* mesh;
@@ -141,6 +148,10 @@ public:
 	VkSurfaceKHR _surface; // window surface
 
 	VkPhysicalDeviceProperties _gpuProperties;
+
+	UploadContext _uploadContext;
+
+	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
 
 	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
 
