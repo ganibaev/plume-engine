@@ -85,10 +85,6 @@ struct FrameData
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
 
-	AllocatedBuffer _cameraBuffer;
-
-	VkDescriptorSet _globalDescriptor;
-
 	AllocatedBuffer _objectBuffer;
 	VkDescriptorSet _objectDescriptor;
 };
@@ -149,13 +145,15 @@ public:
 	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
 
 	GPUSceneData _sceneParameters;
-	AllocatedBuffer _sceneParameterBuffer;
+	AllocatedBuffer _camSceneBuffer;
 
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
 	VkDescriptorSetLayout _globalSetLayout;
 	VkDescriptorSetLayout _objectSetLayout;
 	VkDescriptorPool _descriptorPool;
+
+	VkDescriptorSet _globalDescriptor;
 
 	VkSwapchainKHR _swapchain;
 
