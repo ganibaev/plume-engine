@@ -84,6 +84,12 @@ struct GPUObjectData
 	glm::mat4 modelMatrix;
 };
 
+struct Texture
+{
+	AllocatedImage image;
+	VkImageView imageView;
+};
+
 struct FrameData
 {
 	VkSemaphore _presentSemaphore, _renderSemaphore;
@@ -198,6 +204,8 @@ public:
 	std::unordered_map<std::string, Mesh> _meshes;
 	std::unordered_map<std::string, Material> _materials;
 
+	std::unordered_map<std::string, Texture> _loadedTextures;
+
 	// create material and add to the map
 	Material* create_material(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
 
@@ -226,6 +234,8 @@ private:
 	void init_scene();
 
 	void load_meshes();
+
+	void load_images();
 
 	void upload_mesh(Mesh& mesh);
 };

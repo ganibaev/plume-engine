@@ -3,8 +3,10 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
-#include <vk_types.h>
-#include <vk_initializers.h>
+#include "vk_types.h"
+#include "vk_initializers.h"
+
+#include "vk_textures.h"
 
 // This will make initialization much less of a pain
 #include "VkBootstrap.h"
@@ -62,6 +64,8 @@ void VulkanEngine::init()
 	init_descriptors();
 
 	init_pipelines();
+
+	load_images();
 
 	load_meshes();
 
@@ -630,6 +634,22 @@ void VulkanEngine::load_meshes()
 
 	_meshes["monkey"] = monkeyMesh;
 	_meshes["triangle"] = triangleMesh;
+}
+
+void VulkanEngine::load_images()
+{
+	Texture lostEmpire;
+
+	vkutil::load_image_from_file(*this, "../../assets/lost_empire-RGBA.png", lostEmpire.image);
+
+	VkImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image._image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(_device, &imageViewInfo, nullptr, &lostEmpire.imageView);
+
+	_mainDeletionQueue.push_function([=]() {
+		vkDestroyImageView(_device, lostEmpire.imageView, nullptr);
+		});
+
+	_loadedTextures["empire_diffuse"] = lostEmpire;
 }
 
 void VulkanEngine::init_scene()
