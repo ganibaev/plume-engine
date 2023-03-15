@@ -1,7 +1,4 @@
-﻿// vulkan_guide.h : Include file for standard system include files,
-// or project specific include files.
-
-#pragma once
+﻿#pragma once
 
 #include <vk_types.h>
 #include <vector>
@@ -32,6 +29,7 @@ public:
 
 struct Material
 {
+	VkDescriptorSet textureSet{ VK_NULL_HANDLE };
 	VkPipeline pipeline;
 	VkPipelineLayout pipelineLayout;
 };
@@ -171,6 +169,8 @@ public:
 	VkDescriptorPool _descriptorPool;
 
 	VkDescriptorSet _globalDescriptor;
+
+	VkDescriptorSetLayout _singleTextureSetLayout;
 
 	VkSwapchainKHR _swapchain;
 
