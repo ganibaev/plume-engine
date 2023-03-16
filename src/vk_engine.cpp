@@ -161,7 +161,7 @@ void VulkanEngine::init_swapchain()
 
 	_depthFormat = VK_FORMAT_D32_SFLOAT;
 
-	VkImageCreateInfo dImageInfo = vkinit::image_create_info(_depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
+	VkImageCreateInfo dImageInfo = vkinit::image_create_info(_depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent, 1);
 
 	VmaAllocationCreateInfo dimage_allocinfo = {};
 	dimage_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -169,7 +169,7 @@ void VulkanEngine::init_swapchain()
 
 	vmaCreateImage(_allocator, &dImageInfo, &dimage_allocinfo, &_depthImage._image, &_depthImage._allocation, nullptr);
 
-	VkImageViewCreateInfo dview_info = vkinit::image_view_create_info(_depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT);
+	VkImageViewCreateInfo dview_info = vkinit::image_view_create_info(_depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 
 	VK_CHECK( vkCreateImageView(_device, &dview_info, nullptr, &_depthImageView) );
 
@@ -682,7 +682,7 @@ void VulkanEngine::load_images()
 
 	vkutil::load_image_from_file(this, "../../assets/lost_empire-RGBA.png", lostEmpire.image);
 
-	VkImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image._image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VkImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image._image, VK_IMAGE_ASPECT_COLOR_BIT, lostEmpire.image._mipLevels);
 	vkCreateImageView(_device, &imageViewInfo, nullptr, &lostEmpire.imageView);
 
 	_mainDeletionQueue.push_function([=]() {
