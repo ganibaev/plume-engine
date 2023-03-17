@@ -8,11 +8,11 @@ Currently it supports basic scene rendering and texturing, using multiple buffer
 
 The engine also supports smooth WASD camera movement (with LShift to move up and LCtrl to move down).
 
-# Running the code
+## Running the code
 
 As the architecture of the engine is based on the brilliant Vulkan Guide by Victor Blanco, to run it and play around with it on your own, you can follow the instructions here: https://vkguide.dev/docs/chapter-0/building_project/.
 
-# Work in Progress (loosely arranged in order of priority)
+## Work in progress (loosely arranged in order of priority)
 
 * Mipmap generation
 * Texture arrays
@@ -27,7 +27,7 @@ As the architecture of the engine is based on the brilliant Vulkan Guide by Vict
 * GPU driven rendering
 * ...etc.
 
-# Acknowledgements
+## Acknowledgements
 
 This project is based on the Vulkan Guide by Victor Blanco (https://vkguide.dev/), Vulkan Tutorial by Alexander Overvoorde (https://vulkan-tutorial.com/) and Vulkan samples by Sascha Willems (https://github.com/SaschaWillems/Vulkan).
 
