@@ -4,7 +4,7 @@
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it supports basic scene rendering and texturing, using multiple buffers in the swapchain; it uses one dynamic descriptor and one uniform buffer for all frames for both camera and scene data and SSBO for object transform data.
+Currently it supports basic scene rendering and texturing, using multiple buffers in the swapchain; it uses one dynamic descriptor and one uniform buffer for all frames for both camera, scene data and SSBO for object transform data, and mipmap generation.
 
 The engine also supports smooth WASD camera movement (with LShift to move up and LCtrl to move down).
 
@@ -12,9 +12,10 @@ The engine also supports smooth WASD camera movement (with LShift to move up and
 
 As the architecture of the engine is based on the brilliant Vulkan Guide by Victor Blanco, to run it and play around with it on your own, you can follow the instructions here: https://vkguide.dev/docs/chapter-0/building_project/.
 
+Note that Vulkan validation layers are enabled by default. To turn them off, change `request_validation_layers(true)` to `request_validation_layers(false)` on line 83 in the `src/vk_engine.cpp` file.
+
 ## Work in progress (loosely arranged in order of priority)
 
-* Mipmap generation
 * Texture arrays
 * Point lights
 * Multiple lights
