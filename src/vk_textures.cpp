@@ -48,6 +48,8 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 
 	AllocatedImage newImage;
 
+	newImage._mipLevels = outImage._mipLevels;
+
 	VmaAllocationCreateInfo imgAllocInfo = {};
 	imgAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
@@ -89,16 +91,29 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 		// copy the buffer
 		vkCmdCopyBufferToImage(cmd, stagingBuffer._buffer, newImage._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-		// change layout to shader read optimal
-		VkImageMemoryBarrier imageBarrierToReadable = imageBarrierToTransfer;
+		VkFormatProperties formatProperties;
+		vkGetPhysicalDeviceFormatProperties(engine->_chosenGPU, imageFormat, &formatProperties);
 
-		imageBarrierToReadable.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		imageBarrierToReadable.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+		{
+			std::cout << "Texture image format does not support linear blitting! Falling back to 1 mipmap level";
+			outImage._mipLevels = 1;
+			// change layout to shader read optimal
+			VkImageMemoryBarrier imageBarrierToReadable = imageBarrierToTransfer;
 
-		imageBarrierToReadable.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		imageBarrierToReadable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			imageBarrierToReadable.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageBarrierToReadable.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrierToReadable);
+			imageBarrierToReadable.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageBarrierToReadable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrierToReadable);
+		}
+		else
+		{
+			generate_mipmaps(cmd, newImage._image, texWidth, texHeight, newImage._mipLevels);
+		}
+
 	});
 
 	engine->_mainDeletionQueue.push_function([=]() {
@@ -156,5 +171,29 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, int32_t texWid
 		blit.dstSubresource.layerCount = 1;
 
 		vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+		
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+		if (mipWidth > 1)
+		{
+			mipWidth /= 2;
+		}
+		if (mipHeight > 1)
+		{
+			mipHeight /= 2;
+		}
 	}
+
+	barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }

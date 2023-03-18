@@ -289,17 +289,22 @@ VkWriteDescriptorSet vkinit::write_descriptor_buffer(VkDescriptorType type, VkDe
 	return write;
 }
 
-VkSamplerCreateInfo vkinit::sampler_create_info(VkFilter filters, VkSamplerAddressMode samplerAddressMode /* = VK_SAMPLER_ADDRESS_MODE_REPEAT */)
+VkSamplerCreateInfo vkinit::sampler_create_info(VkFilter magFilter, VkFilter minFilter, uint32_t mipLevels /* = 1 */, float maxLod /* = VK_LOD_CLAMP_NONE */, VkSamplerAddressMode samplerAddressMode /* = VK_SAMPLER_ADDRESS_MODE_REPEAT */)
 {
 	VkSamplerCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	info.pNext = nullptr;
 	
-	info.magFilter = filters;
-	info.minFilter = filters;
+	info.magFilter = magFilter;
+	info.minFilter = minFilter;
 	info.addressModeU = samplerAddressMode;
 	info.addressModeV = samplerAddressMode;
 	info.addressModeW = samplerAddressMode;
+
+	info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	info.minLod = 0.0f;
+	info.maxLod = maxLod;
+	info.mipLodBias = 0.0f;
 
 	return info;
 }

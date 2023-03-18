@@ -712,7 +712,7 @@ void VulkanEngine::init_scene()
 
 
 	// create descriptor set for texture(s)
-	VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_NEAREST);
+	VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_NEAREST, VK_FILTER_NEAREST, _loadedTextures["empire_diffuse"].image._mipLevels, 2.0f);
 
 	VkSampler blockySampler;
 	vkCreateSampler(_device, &samplerInfo, nullptr, &blockySampler);
@@ -721,7 +721,7 @@ void VulkanEngine::init_scene()
 		vkDestroySampler(_device, blockySampler, nullptr);
 		});
 
-	Material* texturedMat = get_material("texturedmesh");;
+	Material* texturedMat = get_material("texturedmesh");
 
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
