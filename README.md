@@ -4,7 +4,7 @@
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it supports basic scene rendering and texturing, using multiple buffers in the swapchain; it uses one dynamic descriptor and one uniform buffer for all frames for both camera, scene data and SSBO for object transform data, and mipmap generation.
+Currently it supports basic scene rendering and texturing, using multiple buffers in the swapchain; it uses one dynamic descriptor and one uniform buffer for all frames for both camera and scene data, SSBO for object transform data, and mipmap generation.
 
 The engine also supports smooth WASD camera movement (with LShift to move up and LCtrl to move down).
 
