@@ -1,12 +1,12 @@
 # Plume Engine
 
-![plume-v0 1](https://user-images.githubusercontent.com/55918604/225998504-cab5905c-f49e-477e-a29f-3d611d9a6aa4.png)
+![plume-v0 2](https://user-images.githubusercontent.com/55918604/232248734-096587fc-3980-44d5-b425-74560fe3d561.jpg)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it supports basic scene rendering and texturing, using multiple buffers in the swapchain; it uses one dynamic descriptor and one uniform buffer for all frames for both camera and scene data, SSBO for object transform data, and mipmap generation.
+Currently it supports fairly complex scene rendering and texturing with an arbitrary number of textures, using variable descriptor count and nonuniform descriptor indexing. It also uses multiple buffers in the swapchain, one dynamic descriptor and one uniform buffer for all frames for both camera and scene data, SSBO for object transform data, and it generates mipmaps. 
 
-The engine also supports smooth WASD camera movement (with LShift to move up and LCtrl to move down).
+The engine supports smooth WASD camera movement (with LShift to move up and LCtrl to move down).
 
 ## Running the code
 
@@ -16,7 +16,6 @@ Note that Vulkan validation layers are enabled by default. To turn them off, cha
 
 ## Work in progress (loosely arranged in order of priority)
 
-* Texture arrays
 * Point lights
 * Multiple lights
 * Specular lighting
