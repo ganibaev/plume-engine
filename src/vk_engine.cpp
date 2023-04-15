@@ -61,13 +61,13 @@ void VulkanEngine::init()
 
 	init_sync_structures();
 
+	load_meshes();
+
 	init_descriptors();
 
 	init_pipelines();
 
 	load_images();
-
-	load_meshes();
 
 	init_scene();
 
@@ -112,7 +112,14 @@ void VulkanEngine::init_vulkan()
 	shaderDrawParametersFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
 	shaderDrawParametersFeatures.shaderDrawParameters = VK_TRUE;
 
-	vkb::Device vkbDevice = deviceBuilder.add_pNext(&shaderDrawParametersFeatures).build().value();
+	VkPhysicalDeviceDescriptorIndexingFeatures descIndexingFeatures = {};
+	descIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+	descIndexingFeatures.pNext = nullptr;
+	descIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
+	descIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
+	descIndexingFeatures.descriptorBindingVariableDescriptorCount = VK_TRUE;
+
+	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures).build().value();
 
 	// get VkDevice handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
@@ -377,17 +384,17 @@ void VulkanEngine::init_sync_structures()
 void VulkanEngine::init_descriptors()
 {
 	std::vector<VkDescriptorPoolSize> poolSizes = { 
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 }
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 100 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 100 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 100 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 }
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	poolInfo.pNext = nullptr;
 	poolInfo.flags = 0;
-	poolInfo.maxSets = 10;
+	poolInfo.maxSets = 100;
 	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
 	poolInfo.pPoolSizes = poolSizes.data();
 
@@ -434,17 +441,29 @@ void VulkanEngine::init_descriptors()
 
 	vkAllocateDescriptorSets(_device, &allocInfo, &_globalDescriptor);
 
+	Mesh* scene = get_mesh("scene");
 
-	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0, scene->_diffuseTexNames.size());
 
 	VkDescriptorSetLayoutCreateInfo texSetInfo = {};
 	texSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	texSetInfo.pNext = nullptr;
+	
 	texSetInfo.bindingCount = 1;
 	texSetInfo.pBindings = &textureBind;
 	texSetInfo.flags = 0;
 
-	vkCreateDescriptorSetLayout(_device, &texSetInfo, nullptr, &_singleTextureSetLayout);
+	// Allow for usage of unwritten descriptor sets and variable size arrays of textures
+	VkDescriptorBindingFlags bindFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindFlagsInfo = {};
+	bindFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+	bindFlagsInfo.pNext = nullptr;
+	bindFlagsInfo.bindingCount = 1;
+	bindFlagsInfo.pBindingFlags = &bindFlags;
+
+	texSetInfo.pNext = &bindFlagsInfo;
+
+	vkCreateDescriptorSetLayout(_device, &texSetInfo, nullptr, &_textureSetLayout);
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
@@ -487,13 +506,15 @@ void VulkanEngine::init_descriptors()
 		vmaDestroyBuffer(_allocator, _camSceneBuffer._buffer, _camSceneBuffer._allocation);
 		vkDestroyDescriptorSetLayout(_device, _globalSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(_device, _objectSetLayout, nullptr);
-		vkDestroyDescriptorSetLayout(_device, _singleTextureSetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(_device, _textureSetLayout, nullptr);
 		vkDestroyDescriptorPool(_device, _descriptorPool, nullptr);
 		});
 }
 
 void VulkanEngine::init_pipelines()
 {
+	Mesh* scene = get_mesh("scene");
+
 	VkShaderModule triangleFragShader;
 	if (!load_shader_module("../../shaders/default_lit.frag.spv", &triangleFragShader))
 	{
@@ -525,7 +546,7 @@ void VulkanEngine::init_pipelines()
 
 	VkPipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
 
-	VkDescriptorSetLayout texSetLayouts[] = { _globalSetLayout, _objectSetLayout, _singleTextureSetLayout };
+	VkDescriptorSetLayout texSetLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout };
 
 	texturedPipelineLayoutInfo.setLayoutCount = 3;
 	texturedPipelineLayoutInfo.pSetLayouts = texSetLayouts;
@@ -668,28 +689,36 @@ void VulkanEngine::load_meshes()
 
 	_meshes["monkey"] = monkeyMesh;
 
-	Mesh lostEmpire;
-	lostEmpire.load_from_obj("../../assets/lost_empire.obj");
+	Mesh scene;
+	scene.load_from_obj("../../assets/sponza.obj");
 
-	upload_mesh(lostEmpire);
+	upload_mesh(scene);
 
-	_meshes["empire"] = lostEmpire;
+	_meshes["scene"] = scene;
 }
 
 void VulkanEngine::load_images()
 {
-	Texture lostEmpire;
+	Mesh* scene = get_mesh("scene");
 
-	vkutil::load_image_from_file(this, "../../assets/lost_empire-RGBA.png", lostEmpire.image);
+	for (size_t i = 0; i < scene->_diffuseTexNames.size(); ++i)
+	{
+		Texture current{};
 
-	VkImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image._image, VK_IMAGE_ASPECT_COLOR_BIT, lostEmpire.image._mipLevels);
-	vkCreateImageView(_device, &imageViewInfo, nullptr, &lostEmpire.imageView);
+		if (!scene->_diffuseTexNames[i].empty())
+		{
+			vkutil::load_image_from_file(this, scene->_diffuseTexNames[i].data(), current.image);
 
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroyImageView(_device, lostEmpire.imageView, nullptr);
-		});
+			VkImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, current.image._image, VK_IMAGE_ASPECT_COLOR_BIT, current.image._mipLevels);
+			vkCreateImageView(_device, &imageViewInfo, nullptr, &current.imageView);
 
-	_loadedTextures["empire_diffuse"] = lostEmpire;
+			_mainDeletionQueue.push_function([=]() {
+				vkDestroyImageView(_device, current.imageView, nullptr);
+				});
+		}
+
+		_loadedTextures[scene->_matNames[i]] = current;
+	}
 }
 
 void VulkanEngine::init_scene()
@@ -698,47 +727,60 @@ void VulkanEngine::init_scene()
 	monkey.mesh = get_mesh("monkey");
 	monkey.material = get_material("defaultmesh");
 	//glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(5.0f, 5.0f, 5.0f));
-	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(0, 3, 0));
+	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8, 0));
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	monkey.transformMatrix = meshTranslate;
 	
 	RenderObject map;
-	map.mesh = get_mesh("empire");
+	map.mesh = get_mesh("scene");
 	map.material = get_material("texturedmesh");
-	map.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 });
+	map.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
 	_renderables.push_back(map);
 	_renderables.push_back(monkey);
-
-
+	
 	// create descriptor set for texture(s)
-	VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_NEAREST, VK_FILTER_NEAREST, _loadedTextures["empire_diffuse"].image._mipLevels, 2.0f);
-
-	VkSampler blockySampler;
-	vkCreateSampler(_device, &samplerInfo, nullptr, &blockySampler);
-
-	_mainDeletionQueue.push_function([=]() {
-		vkDestroySampler(_device, blockySampler, nullptr);
-		});
 
 	Material* texturedMat = get_material("texturedmesh");
 
+	uint32_t variableDescCount = map.mesh->_diffuseTexNames.size();
+
+	VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescriptorCountAllocInfo = {};
+	variableDescriptorCountAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+	variableDescriptorCountAllocInfo.descriptorSetCount = 1;
+	variableDescriptorCountAllocInfo.pDescriptorCounts = &variableDescCount;
+
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.pNext = nullptr;
+	allocInfo.pNext = &variableDescriptorCountAllocInfo;
 	allocInfo.descriptorPool = _descriptorPool;
 	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &_singleTextureSetLayout;
+	allocInfo.pSetLayouts = &_textureSetLayout;
 
 	vkAllocateDescriptorSets(_device, &allocInfo, &texturedMat->textureSet);
 
-	// write to descriptor set
-	VkDescriptorImageInfo imageBufferInfo = {};
-	imageBufferInfo.sampler = blockySampler;
-	imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageBufferInfo.imageView = _loadedTextures["empire_diffuse"].imageView;
+	std::vector<VkDescriptorImageInfo> imageBufferInfos;
+	imageBufferInfos.resize(map.mesh->_diffuseTexNames.size());
 
-	VkWriteDescriptorSet textureWrite = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texturedMat->textureSet, &imageBufferInfo, 0);
+	for (size_t i = 0; i < map.mesh->_diffuseTexNames.size(); ++i)
+	{
+		VkSamplerCreateInfo samplerInfo = vkinit::sampler_create_info(VK_FILTER_LINEAR, VK_FILTER_LINEAR, _loadedTextures[map.mesh->_matNames[i]].image._mipLevels, VK_LOD_CLAMP_NONE);
+
+		VkSampler smoothSampler;
+		vkCreateSampler(_device, &samplerInfo, nullptr, &smoothSampler);
+
+		_mainDeletionQueue.push_function([=]() {
+			vkDestroySampler(_device, smoothSampler, nullptr);
+			});
+
+		imageBufferInfos[i].sampler = smoothSampler;
+		imageBufferInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageBufferInfos[i].imageView = _loadedTextures[map.mesh->_matNames[i]].imageView;
+	}
+
+	// write to descriptor sets
+
+	VkWriteDescriptorSet textureWrite = vkinit::write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texturedMat->textureSet, imageBufferInfos.data(), 0, imageBufferInfos.size());
 
 	vkUpdateDescriptorSets(_device, 1, &textureWrite, 0, nullptr);
 }
@@ -1061,6 +1103,7 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 
 		MeshPushConstants constants;
 		constants.render_matrix = object.transformMatrix;
+		constants.num_materials = object.mesh->_matNames.size();
 
 		// upload to GPU
 		vkCmdPushConstants(cmd, object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);

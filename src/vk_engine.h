@@ -29,7 +29,7 @@ public:
 
 struct Material
 {
-	VkDescriptorSet textureSet{ VK_NULL_HANDLE };
+	VkDescriptorSet textureSet{	VK_NULL_HANDLE };
 	VkPipeline pipeline;
 	VkPipelineLayout pipelineLayout;
 };
@@ -57,6 +57,7 @@ struct MeshPushConstants
 {
 	glm::vec4 data;
 	glm::mat4 render_matrix;
+	glm::uint num_materials;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -170,7 +171,7 @@ public:
 
 	VkDescriptorSet _globalDescriptor;
 
-	VkDescriptorSetLayout _singleTextureSetLayout;
+	VkDescriptorSetLayout _textureSetLayout;
 
 	VkSwapchainKHR _swapchain;
 

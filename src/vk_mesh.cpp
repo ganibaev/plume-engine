@@ -43,15 +43,25 @@ VertexInputDescription Vertex::get_vertex_description()
 	uvAttribute.format = VK_FORMAT_R32G32_SFLOAT;
 	uvAttribute.offset = offsetof(Vertex, uv);
 
+	// material ID at location 4
+	VkVertexInputAttributeDescription materialIDAttribute = {};
+	materialIDAttribute.binding = 0;
+	materialIDAttribute.location = 4;
+	materialIDAttribute.format = VK_FORMAT_R32_UINT;
+	materialIDAttribute.offset = offsetof(Vertex, materialID);
+
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);
 	description.attributes.push_back(uvAttribute);
+	description.attributes.push_back(materialIDAttribute);
 	return description;
 }
 
 bool Mesh::load_from_obj(const char* filePath)
 {
+	std::string matBaseDir = "../../assets/";
+
 	tinyobj::attrib_t vertexAttributes;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
@@ -59,7 +69,7 @@ bool Mesh::load_from_obj(const char* filePath)
 	std::string warn;
 	std::string err;
 
-	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath, nullptr);
+	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath, matBaseDir.data());
 
 	if (!warn.empty())
 	{
@@ -72,13 +82,28 @@ bool Mesh::load_from_obj(const char* filePath)
 		return false;
 	}
 
+	_diffuseTexNames.resize(materials.size());
+	_matNames.resize(materials.size());
+
+	for (size_t m = 0; m < materials.size(); ++m)
+	{
+		_matNames[m] = materials[m].name;
+
+		if (!materials[m].diffuse_texname.empty())
+		{
+			_diffuseTexNames[m] = matBaseDir + materials[m].diffuse_texname;
+		}
+	}
+
 	for (size_t s = 0; s < shapes.size(); ++s)
 	{
 		size_t indexOffset = 0;
+		constexpr int verticesPerFace = 3;
+
+		_vertices.reserve(_vertices.size() + shapes[s].mesh.num_face_vertices.size() * verticesPerFace);
+
 		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f)
 		{
-			constexpr int verticesPerFace = 3;
-
 			for (size_t v = 0; v < verticesPerFace; ++v)
 			{
 				// access the vertex
@@ -113,6 +138,8 @@ bool Mesh::load_from_obj(const char* filePath)
 
 				newVertex.uv.x = ux;
 				newVertex.uv.y = 1 - uy; // Vulkan convention
+
+				newVertex.materialID = shapes[s].mesh.material_ids[f];
 
 				_vertices.push_back(newVertex);
 			}

@@ -262,11 +262,11 @@ VkImageViewCreateInfo vkinit::image_view_create_info(VkFormat format, VkImage im
 	return info;
 }
 
-VkDescriptorSetLayoutBinding vkinit::descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding)
+VkDescriptorSetLayoutBinding vkinit::descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount /* = 1 */)
 {
 	VkDescriptorSetLayoutBinding setBind = {};
 	setBind.binding = binding;
-	setBind.descriptorCount = 1;
+	setBind.descriptorCount = descCount;
 	setBind.descriptorType = type;
 	setBind.pImmutableSamplers = nullptr;
 	setBind.stageFlags = stageFlags;
@@ -309,7 +309,7 @@ VkSamplerCreateInfo vkinit::sampler_create_info(VkFilter magFilter, VkFilter min
 	return info;
 }
 
-VkWriteDescriptorSet vkinit::write_descriptor_image(VkDescriptorType type, VkDescriptorSet dstSet, VkDescriptorImageInfo* imageInfo, uint32_t binding)
+VkWriteDescriptorSet vkinit::write_descriptor_image(VkDescriptorType type, VkDescriptorSet dstSet, VkDescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount /* = 1 */)
 {
 	VkWriteDescriptorSet write = {};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -317,7 +317,7 @@ VkWriteDescriptorSet vkinit::write_descriptor_image(VkDescriptorType type, VkDes
 
 	write.dstBinding = binding;
 	write.dstSet = dstSet;
-	write.descriptorCount = 1;
+	write.descriptorCount = descriptorCount;
 	write.descriptorType = type;
 	write.pImageInfo = imageInfo;
 
