@@ -1,6 +1,6 @@
 # Plume Engine
 
-![plume-v0 2](https://user-images.githubusercontent.com/55918604/232248734-096587fc-3980-44d5-b425-74560fe3d561.jpg)
+![plume-v0 2](https://user-images.githubusercontent.com/55918604/232280224-aa31a3e8-d534-45cb-9a50-609211885d1b.png)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
