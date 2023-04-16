@@ -129,7 +129,7 @@ bool Mesh::load_from_obj(const char* filePath)
 				newVertex.normal.y = ny;
 				newVertex.normal.z = nz;
 
-				// we will basically draw a normal buffer
+				// we will basically draw a normal buffer by default
 				newVertex.color = newVertex.normal;
 
 				// vertex uv

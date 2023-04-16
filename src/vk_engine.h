@@ -73,7 +73,8 @@ struct GPUSceneData
 {
 	glm::vec4 fogColor; // w for exponent
 	glm::vec4 fogDistances; // x -- min, y -- max
-	glm::vec4 ambientColor;
+	glm::vec3 ambientColor;
+	glm::float32 ambientLight;
 	glm::vec4 sunlightDirection; // w for sun power
 	glm::vec4 sunlightColor;
 };

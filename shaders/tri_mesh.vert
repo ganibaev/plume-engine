@@ -9,13 +9,20 @@ layout (location = 4) in uint vMatID;
 layout (location = 0) out vec3 outColor;
 layout (location = 1) out vec2 texCoord;
 layout (location = 2) flat out uint matID;
+layout (location = 3) out float lightIntensity;
 
 layout (set = 0, binding = 0) uniform CameraBuffer
 {
 	mat4 view;
 	mat4 proj;
 	mat4 viewproj;
-} cameraData;
+	vec4 fogColor; // w for exponent
+	vec4 fogDistances; // x -- min, y -- max
+	vec3 ambientColor;
+	float ambientLight;
+	vec4 sunlightDirection; // w for sun power
+	vec4 sunlightColor;
+} camSceneData;
 
 struct ObjectData
 {
@@ -37,8 +44,14 @@ layout (push_constant) uniform constants
 void main()
 {
 	mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].model;
-	mat4 transformMatrix = (cameraData.viewproj * modelMatrix);
+
+	// no non-uniform scaling
+	vec3 normalWorldSpace = normalize(modelMatrix * vec4(vNormal, 0.0)).xyz;
+	lightIntensity = max(dot(normalWorldSpace, camSceneData.sunlightDirection.xyz), 0) + camSceneData.ambientLight;
+
+	mat4 transformMatrix = (camSceneData.viewproj * modelMatrix);
 	gl_Position = transformMatrix * vec4(vPosition, 1.0f);
+
 	outColor = vColor;
 	texCoord = vTexCoord;
 	matID = vMatID;

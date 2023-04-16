@@ -736,6 +736,8 @@ void VulkanEngine::init_scene()
 	map.material = get_material("texturedmesh");
 	map.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
+	_sceneParameters.sunlightDirection = glm::normalize(glm::vec4(1.0f, 3.0f, 1.0f, 0.0f));
+
 	_renderables.push_back(map);
 	_renderables.push_back(monkey);
 	
@@ -1042,7 +1044,9 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 
 	float framed = _frameNumber / 120.0f;
 
-	_sceneParameters.ambientColor = { sin(framed), 0.0f, cos(framed), 1.0f };
+	_sceneParameters.ambientColor = { sin(framed), 0.0f, cos(framed)};
+	_sceneParameters.ambientLight = 0.04f;
+
 	char* data;
 
 	vmaMapMemory(_allocator, _camSceneBuffer._allocation, (void**)&data);
