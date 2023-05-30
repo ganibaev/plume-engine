@@ -65,6 +65,7 @@ constexpr unsigned int FRAME_OVERLAP = 2;
 struct GPUCameraData
 {
 	glm::mat4 view;
+	glm::mat4 invView;
 	glm::mat4 proj;
 	glm::mat4 viewproj;
 };
@@ -73,10 +74,12 @@ struct GPUSceneData
 {
 	glm::vec4 fogColor; // w for exponent
 	glm::vec4 fogDistances; // x -- min, y -- max
-	glm::vec3 ambientColor;
-	glm::float32 ambientLight;
+	glm::vec4 ambientLight; // a for ambient light intensity
 	glm::vec4 sunlightDirection; // w for sun power
 	glm::vec4 sunlightColor;
+	// point light
+	glm::vec4 pointLightPosition;
+	glm::vec4 pointLightColor; // w for light intensity
 };
 
 struct GPUObjectData
@@ -159,7 +162,8 @@ public:
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-	glm::vec3 _camPos = { 0.0f, -6.0f, -10.0f };
+	glm::vec3 _camPos = { -2.8f, -6.0f, -40.0f };
+	glm::vec3 _lightPos = { 2.8f, 12.0f, -5.0f };
 
 	GPUSceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;

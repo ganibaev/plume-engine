@@ -727,7 +727,7 @@ void VulkanEngine::init_scene()
 	monkey.mesh = get_mesh("monkey");
 	monkey.material = get_material("defaultmesh");
 	//glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(5.0f, 5.0f, 5.0f));
-	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8, 0));
+	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	monkey.transformMatrix = meshTranslate;
 	
@@ -737,6 +737,10 @@ void VulkanEngine::init_scene()
 	map.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
 	_sceneParameters.sunlightDirection = glm::normalize(glm::vec4(1.0f, 3.0f, 1.0f, 0.0f));
+	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.02f };
+
+	_sceneParameters.pointLightPosition = glm::vec4{ _lightPos, 0.0f };
+	_sceneParameters.pointLightColor = glm::vec4{ 1.0f, 1.0f, 1.0f, 500.0f };
 
 	_renderables.push_back(map);
 	_renderables.push_back(monkey);
@@ -910,7 +914,6 @@ void VulkanEngine::draw()
 
 	draw_objects(cmd, _renderables.data(), _renderables.size());
 
-	// finish render pass
 	vkCmdEndRenderPass(cmd);
 
 	// ======================================== END RENDER PASS ========================================
@@ -1039,13 +1042,11 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 
 	GPUCameraData camData;
 	camData.view = view;
+	camData.invView = glm::inverse(view);
 	camData.proj = projection;
 	camData.viewproj = projection * view;
 
-	float framed = _frameNumber / 120.0f;
-
-	_sceneParameters.ambientColor = { sin(framed), 0.0f, cos(framed)};
-	_sceneParameters.ambientLight = 0.04f;
+	_sceneParameters.pointLightPosition = glm::vec4{ _lightPos, 0.0f };
 
 	char* data;
 
@@ -1171,6 +1172,24 @@ void VulkanEngine::run()
 				break;
 			case SDLK_d:
 				_camPos.x -= _camSpeed;
+				break;
+			case SDLK_RSHIFT:
+				_lightPos.y += _camSpeed;
+				break;
+			case SDLK_RCTRL:
+				_lightPos.y -= _camSpeed;
+				break;
+			case SDLK_UP:
+				_lightPos.z -= _camSpeed;
+				break;
+			case SDLK_DOWN:
+				_lightPos.z += _camSpeed;
+				break;
+			case SDLK_LEFT:
+				_lightPos.x -= _camSpeed;
+				break;
+			case SDLK_RIGHT:
+				_lightPos.x += _camSpeed;
 				break;
 			default:
 				break;
