@@ -9,6 +9,8 @@ add_executable(plume
     vk_initializers.h
     vk_mesh.cpp
     vk_mesh.h
+    vk_camera.cpp
+    vk_camera.h
     vk_textures.cpp
     vk_textures.h)
 

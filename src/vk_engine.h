@@ -1,15 +1,19 @@
 ﻿#pragma once
 
-#include <vk_types.h>
+#include "vk_types.h"
 #include <vector>
 #include <deque>
 #include <tuple>
 #include <functional>
 #include <string>
 
+#include "vk_camera.h"
 #include "vk_mesh.h"
 
 #include <glm/glm.hpp>
+
+#include <SDL.h>
+#include <SDL_vulkan.h>
 
 class PipelineBuilder {
 public:
@@ -60,7 +64,7 @@ struct MeshPushConstants
 	glm::uint num_materials;
 };
 
-constexpr unsigned int FRAME_OVERLAP = 2;
+constexpr unsigned int FRAME_OVERLAP = 3;
 
 struct GPUCameraData
 {
@@ -148,6 +152,10 @@ public:
 	//run main loop
 	void run();
 
+	void on_mouse_motion_callback();
+	void on_mouse_scroll_callback(float yOffset);
+	void on_keyboard_event_callback(SDL_Keycode sym);
+
 	VmaAllocator _allocator;
 
 	VkInstance _instance; // Vulkan library handle
@@ -162,7 +170,10 @@ public:
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
 
-	glm::vec3 _camPos = { -2.8f, -6.0f, -40.0f };
+	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
+	float _timeDelta = 0.0f;
+	float _lastFrameTime = 0.0f;
+
 	glm::vec3 _lightPos = { 2.8f, 12.0f, -5.0f };
 
 	GPUSceneData _sceneParameters;

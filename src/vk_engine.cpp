@@ -1,8 +1,5 @@
 ﻿#include "vk_engine.h"
 
-#include <SDL.h>
-#include <SDL_vulkan.h>
-
 #include "vk_types.h"
 #include "vk_initializers.h"
 
@@ -1035,9 +1032,9 @@ Mesh* VulkanEngine::get_mesh(const std::string& name)
 
 void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int count)
 {
-	glm::mat4 view = glm::translate(glm::mat4(1.0f), _camPos);
+	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(70.0f), _windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), _windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, 200.0f);
 	projection[1][1] *= -1;
 
 	GPUCameraData camData;
@@ -1123,22 +1120,101 @@ void VulkanEngine::draw_objects(VkCommandBuffer cmd, RenderObject* first, int co
 	}
 }
 
+void VulkanEngine::on_mouse_motion_callback()
+{
+	int outRelX = 0;
+	int outRelY = 0;
+
+	SDL_GetRelativeMouseState(&outRelX, &outRelY);
+
+	float xOffset = static_cast<float>(outRelX);
+	float yOffset = -static_cast<float>(outRelY);
+
+	_camera.process_camera_movement(xOffset, yOffset);
+}
+
+void VulkanEngine::on_mouse_scroll_callback(float yOffset)
+{
+	_camera.process_mouse_scroll(yOffset);
+}
+
+void VulkanEngine::on_keyboard_event_callback(SDL_Keycode sym)
+{
+	switch (sym)
+	{
+	case SDLK_LSHIFT:
+		_camera.process_keyboard(CameraMovement::UP, _timeDelta);
+		break;
+	case SDLK_LCTRL:
+		_camera.process_keyboard(CameraMovement::DOWN, _timeDelta);
+		break;
+	case SDLK_w:
+		_camera.process_keyboard(CameraMovement::FORWARD, _timeDelta);
+		break;
+	case SDLK_s:
+		_camera.process_keyboard(CameraMovement::BACKWARD, _timeDelta);
+		break;
+	case SDLK_a:
+		_camera.process_keyboard(CameraMovement::LEFT, _timeDelta);
+		break;
+	case SDLK_d:
+		_camera.process_keyboard(CameraMovement::RIGHT, _timeDelta);
+		break;
+	case SDLK_RSHIFT:
+		_lightPos.y += _camSpeed;
+		break;
+	case SDLK_RCTRL:
+		_lightPos.y -= _camSpeed;
+		break;
+	case SDLK_UP:
+		_lightPos.z -= _camSpeed;
+		break;
+	case SDLK_DOWN:
+		_lightPos.z += _camSpeed;
+		break;
+	case SDLK_LEFT:
+		_lightPos.x -= _camSpeed;
+		break;
+	case SDLK_RIGHT:
+		_lightPos.x += _camSpeed;
+		break;
+	default:
+		break;
+	}
+}
+
 void VulkanEngine::run()
 {
 	SDL_Event e;
 	bool bQuit = false;
 	bool keyDown = false;
+	bool mouseMotion = false;
+	bool mouseWheel = false;
+	float scrollY = 0.0f;
 	SDL_Keycode sym = 0;
-	//main loop
+	// main loop
+	SDL_SetRelativeMouseMode(SDL_TRUE);
 	while (!bQuit)
 	{
-		//Handle events on queue
+		float curFrameTime = static_cast<float>(SDL_GetTicks64() / 1000.0f);
+		_timeDelta = curFrameTime - _lastFrameTime;
+		_lastFrameTime = curFrameTime;
+
+		// Handle events on queue
 		while (SDL_PollEvent(&e) != 0)
 		{
+			// SDL window callback processing
 			switch (e.type)
 			{
 			case SDL_QUIT:
 				bQuit = true;
+				break;
+			case SDL_MOUSEMOTION:
+				mouseMotion = true;
+				break;
+			case SDL_MOUSEWHEEL:
+				mouseWheel = true;
+				scrollY = e.wheel.preciseY;
 				break;
 			case SDL_KEYDOWN:
 				sym = e.key.keysym.sym;
@@ -1151,49 +1227,18 @@ void VulkanEngine::run()
 				break;
 			}
 		}
+		if (mouseMotion)
+		{
+			on_mouse_motion_callback();
+		}
+		if (mouseWheel)
+		{
+			on_mouse_scroll_callback(scrollY);
+			scrollY = 0.0f;
+		}
 		if (keyDown)
 		{
-			switch (sym)
-			{
-			case SDLK_LSHIFT:
-				_camPos.y -= _camSpeed;
-				break;
-			case SDLK_LCTRL:
-				_camPos.y += _camSpeed;
-				break;
-			case SDLK_w:
-				_camPos.z += _camSpeed;
-				break;
-			case SDLK_s:
-				_camPos.z -= _camSpeed;
-				break;
-			case SDLK_a:
-				_camPos.x += _camSpeed;
-				break;
-			case SDLK_d:
-				_camPos.x -= _camSpeed;
-				break;
-			case SDLK_RSHIFT:
-				_lightPos.y += _camSpeed;
-				break;
-			case SDLK_RCTRL:
-				_lightPos.y -= _camSpeed;
-				break;
-			case SDLK_UP:
-				_lightPos.z -= _camSpeed;
-				break;
-			case SDLK_DOWN:
-				_lightPos.z += _camSpeed;
-				break;
-			case SDLK_LEFT:
-				_lightPos.x -= _camSpeed;
-				break;
-			case SDLK_RIGHT:
-				_lightPos.x += _camSpeed;
-				break;
-			default:
-				break;
-			}
+			on_keyboard_event_callback(sym);
 		}
 
 		draw();
