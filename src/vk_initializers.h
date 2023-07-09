@@ -23,15 +23,15 @@ namespace vkinit {
 	VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info();
 	VkPipelineInputAssemblyStateCreateInfo input_assembly_create_info(VkPrimitiveTopology topology);
 	VkPipelineRasterizationStateCreateInfo rasterization_state_create_info(VkPolygonMode polygonMode, VkCullModeFlags cullMode = VK_CULL_MODE_NONE);
-	VkPipelineMultisampleStateCreateInfo multisampling_state_create_info();
+	VkPipelineMultisampleStateCreateInfo multisampling_state_create_info(VkSampleCountFlagBits numSamples);
 	VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, VkCompareOp compareOp);
 
 	VkRenderPassBeginInfo render_pass_begin_info(VkRenderPass renderPass, VkExtent2D windowExtent, VkFramebuffer framebuffer);
 	
-	VkPipelineColorBlendAttachmentState color_blend_attachment_state();
+	VkPipelineColorBlendAttachmentState color_blend_attachment_state(VkBool32 blendEnable = VK_FALSE);
 	VkPipelineLayoutCreateInfo pipeline_layout_create_info();
 
-	VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels);
+	VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels, VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT);
 	VkImageViewCreateInfo image_view_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
 
 	VkDescriptorSetLayoutBinding descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount = 1);

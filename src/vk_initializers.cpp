@@ -152,15 +152,15 @@ VkPipelineRasterizationStateCreateInfo vkinit::rasterization_state_create_info(V
 	return info;
 }
 
-VkPipelineMultisampleStateCreateInfo vkinit::multisampling_state_create_info()
+VkPipelineMultisampleStateCreateInfo vkinit::multisampling_state_create_info(VkSampleCountFlagBits numSamples)
 {
 	VkPipelineMultisampleStateCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	info.pNext = nullptr;
 
-	// no MSAA
+	// MSAA
 	info.sampleShadingEnable = VK_FALSE;
-	info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	info.rasterizationSamples = numSamples;
 	info.minSampleShading = 1.0f;
 	info.pSampleMask = nullptr;
 	info.alphaToCoverageEnable = VK_FALSE;
@@ -201,11 +201,18 @@ VkRenderPassBeginInfo vkinit::render_pass_begin_info(VkRenderPass renderPass, Vk
 	return rpInfo;
 }
 
-VkPipelineColorBlendAttachmentState vkinit::color_blend_attachment_state()
+VkPipelineColorBlendAttachmentState vkinit::color_blend_attachment_state(VkBool32 blendEnable /* = VK_FALSE */)
 {
 	VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
 	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	colorBlendAttachment.blendEnable = VK_FALSE;
+	colorBlendAttachment.blendEnable = blendEnable;
+	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
 	return colorBlendAttachment;
 }
 
@@ -224,7 +231,7 @@ VkPipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
 	return info;
 }
 
-VkImageCreateInfo vkinit::image_create_info(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels)
+VkImageCreateInfo vkinit::image_create_info(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels, VkSampleCountFlagBits numSamples /* = VK_SAMPLE_COUNT_1_BIT */)
 {
 	VkImageCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -237,7 +244,7 @@ VkImageCreateInfo vkinit::image_create_info(VkFormat format, VkImageUsageFlags u
 
 	info.mipLevels = mipLevels;
 	info.arrayLayers = 1;
-	info.samples = VK_SAMPLE_COUNT_1_BIT;
+	info.samples = numSamples;
 	info.tiling = VK_IMAGE_TILING_OPTIMAL;
 	info.usage = usageFlags;
 

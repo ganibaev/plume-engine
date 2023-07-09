@@ -124,6 +124,28 @@ void VulkanEngine::init_vulkan()
 
 	_gpuProperties = physicalDevice.properties;
 
+	// use 8 samples for MSAA by default
+	// if the physical device doesn't support MSAA x8, fall back to max supported number of samples
+
+	VkSampleCountFlags supportedSampleCounts = _gpuProperties.limits.framebufferColorSampleCounts &
+		_gpuProperties.limits.framebufferDepthSampleCounts;
+
+	if (!(supportedSampleCounts & VK_SAMPLE_COUNT_8_BIT))
+	{
+		if (supportedSampleCounts & VK_SAMPLE_COUNT_4_BIT)
+		{
+			_msaaSamples = VK_SAMPLE_COUNT_4_BIT;
+		}
+		else if (supportedSampleCounts & VK_SAMPLE_COUNT_2_BIT)
+		{
+			_msaaSamples = VK_SAMPLE_COUNT_2_BIT;
+		}
+		else
+		{
+			_msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+		}
+	}
+
 	// get Graphics-capable queue using VkBootstrap
 	_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
 	_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -157,6 +179,32 @@ void VulkanEngine::init_swapchain()
 		vkDestroySwapchainKHR(_device, _swapchain, nullptr);
 		});
 
+	VkExtent3D colorImageExtent = {
+		_windowExtent.width,
+		_windowExtent.height,
+		1
+	};
+
+	_colorFormat = _swapchainImageFormat;
+
+	VkImageCreateInfo cImageInfo = vkinit::image_create_info(_colorFormat, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT
+		| VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, colorImageExtent, 1, _msaaSamples);
+
+	VmaAllocationCreateInfo cImageAllocInfo = {};
+	cImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	cImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	vmaCreateImage(_allocator, &cImageInfo, &cImageAllocInfo, &_colorImage._image, &_colorImage._allocation, nullptr);
+
+	VkImageViewCreateInfo cViewInfo = vkinit::image_view_create_info(_colorFormat, _colorImage._image, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+
+	VK_CHECK( vkCreateImageView(_device, &cViewInfo, nullptr, &_colorImageView) );
+
+	_mainDeletionQueue.push_function([=]() {
+		vkDestroyImageView(_device, _colorImageView, nullptr);
+		vmaDestroyImage(_allocator, _colorImage._image, _colorImage._allocation);
+	});
+
 	VkExtent3D depthImageExtent = {
 		_windowExtent.width,
 		_windowExtent.height,
@@ -165,17 +213,18 @@ void VulkanEngine::init_swapchain()
 
 	_depthFormat = VK_FORMAT_D32_SFLOAT;
 
-	VkImageCreateInfo dImageInfo = vkinit::image_create_info(_depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent, 1);
+	VkImageCreateInfo dImageInfo = vkinit::image_create_info(_depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		depthImageExtent, 1, _msaaSamples);
 
-	VmaAllocationCreateInfo dimage_allocinfo = {};
-	dimage_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	dimage_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VmaAllocationCreateInfo dImageAllocInfo = {};
+	dImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	dImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-	vmaCreateImage(_allocator, &dImageInfo, &dimage_allocinfo, &_depthImage._image, &_depthImage._allocation, nullptr);
+	vmaCreateImage(_allocator, &dImageInfo, &dImageAllocInfo, &_depthImage._image, &_depthImage._allocation, nullptr);
 
-	VkImageViewCreateInfo dview_info = vkinit::image_view_create_info(_depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	VkImageViewCreateInfo dViewInfo = vkinit::image_view_create_info(_depthFormat, _depthImage._image, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 
-	VK_CHECK( vkCreateImageView(_device, &dview_info, nullptr, &_depthImageView) );
+	VK_CHECK( vkCreateImageView(_device, &dViewInfo, nullptr, &_depthImageView) );
 
 	_mainDeletionQueue.push_function([=]() {
 		vkDestroyImageView(_device, _depthImageView, nullptr);
@@ -230,7 +279,7 @@ void VulkanEngine::init_default_renderpass()
 	color_attachment.format = _swapchainImageFormat;
 
 	// number of samples (for MSAA, for instance)
-	color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	color_attachment.samples = _msaaSamples;
 
 	// clear when we load this attachment
 	color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -243,8 +292,27 @@ void VulkanEngine::init_default_renderpass()
 	// at the start we don't care about image layout format
 	color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-	// when the render pass ends (the image is rendered), we need to be able to present it optimally
-	color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	// when the render pass ends (the image is rendered), it needs to be ready to get resolved
+	color_attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	// create a color attachment to resolve MSAA
+	VkAttachmentDescription color_attachment_resolve = {};
+
+	color_attachment_resolve.format = _swapchainImageFormat;
+	color_attachment_resolve.samples = VK_SAMPLE_COUNT_1_BIT;
+
+	color_attachment_resolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color_attachment_resolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+	color_attachment_resolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color_attachment_resolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+	color_attachment_resolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	color_attachment_resolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference color_attachment_resolve_ref = {};
+	color_attachment_resolve_ref.attachment = 2;
+	color_attachment_resolve_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference color_attachment_ref = {};
 	// index into pAttachments of the parent render pass
@@ -254,7 +322,7 @@ void VulkanEngine::init_default_renderpass()
 	VkAttachmentDescription depth_attachment = {};
 	depth_attachment.flags = 0;
 	depth_attachment.format = _depthFormat;
-	depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depth_attachment.samples = _msaaSamples;
 	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -270,6 +338,7 @@ void VulkanEngine::init_default_renderpass()
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
+	subpass.pResolveAttachments = &color_attachment_resolve_ref;
 	subpass.pColorAttachments = &color_attachment_ref;
 	subpass.pDepthStencilAttachment = &depth_attachment_ref;
 
@@ -291,13 +360,13 @@ void VulkanEngine::init_default_renderpass()
 
 	VkSubpassDependency dependencies[2] = { color_dependency, depth_dependency };
 
-	VkAttachmentDescription attachments[2] = { color_attachment, depth_attachment };
+	VkAttachmentDescription attachments[3] = { color_attachment, depth_attachment, color_attachment_resolve };
 
 	VkRenderPassCreateInfo render_pass_info = {};
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
 	// connect color attachment to render pass
-	render_pass_info.attachmentCount = 2;
+	render_pass_info.attachmentCount = 3;
 	render_pass_info.pAttachments = &attachments[0];
 	// connect dependencies
 	render_pass_info.dependencyCount = 2;
@@ -332,10 +401,10 @@ void VulkanEngine::init_framebuffers()
 
 	// create a framebuffer for each swapchain image view
 	for (size_t i = 0; i < swapchain_imagecount; ++i) {
-		VkImageView attachments[2] = { _swapchainImageViews[i], _depthImageView };
+		VkImageView attachments[3] = { _colorImageView, _depthImageView, _swapchainImageViews[i] };
 
 		fb_info.pAttachments = &attachments[0];
-		fb_info.attachmentCount = 2;
+		fb_info.attachmentCount = 3;
 
 		VK_CHECK( vkCreateFramebuffer(_device, &fb_info, nullptr, &_framebuffers[i]) );
 
@@ -575,8 +644,7 @@ void VulkanEngine::init_pipelines()
 	// draw filled triangles
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(VK_POLYGON_MODE_FILL);
 
-	// no multisampling
-	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info();
+	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info(_msaaSamples);
 
 	// no blending, write to rgba
 	pipelineBuilder._colorBlendAttachment = vkinit::color_blend_attachment_state();
@@ -1143,22 +1211,22 @@ void VulkanEngine::on_keyboard_event_callback(SDL_Keycode sym)
 	switch (sym)
 	{
 	case SDLK_LSHIFT:
-		_camera.process_keyboard(CameraMovement::UP, _timeDelta);
+		_camera.process_keyboard(CameraMovement::UP, _deltaTime);
 		break;
 	case SDLK_LCTRL:
-		_camera.process_keyboard(CameraMovement::DOWN, _timeDelta);
+		_camera.process_keyboard(CameraMovement::DOWN, _deltaTime);
 		break;
 	case SDLK_w:
-		_camera.process_keyboard(CameraMovement::FORWARD, _timeDelta);
+		_camera.process_keyboard(CameraMovement::FORWARD, _deltaTime);
 		break;
 	case SDLK_s:
-		_camera.process_keyboard(CameraMovement::BACKWARD, _timeDelta);
+		_camera.process_keyboard(CameraMovement::BACKWARD, _deltaTime);
 		break;
 	case SDLK_a:
-		_camera.process_keyboard(CameraMovement::LEFT, _timeDelta);
+		_camera.process_keyboard(CameraMovement::LEFT, _deltaTime);
 		break;
 	case SDLK_d:
-		_camera.process_keyboard(CameraMovement::RIGHT, _timeDelta);
+		_camera.process_keyboard(CameraMovement::RIGHT, _deltaTime);
 		break;
 	case SDLK_RSHIFT:
 		_lightPos.y += _camSpeed;
@@ -1197,7 +1265,7 @@ void VulkanEngine::run()
 	while (!bQuit)
 	{
 		float curFrameTime = static_cast<float>(SDL_GetTicks64() / 1000.0f);
-		_timeDelta = curFrameTime - _lastFrameTime;
+		_deltaTime = curFrameTime - _lastFrameTime;
 		_lastFrameTime = curFrameTime;
 
 		// Handle events on queue

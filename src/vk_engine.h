@@ -132,7 +132,7 @@ class VulkanEngine {
 public:
 
 	bool _isInitialized{ false };
-	int _frameNumber {0};
+	int _frameNumber{ 0 };
 	
 	constexpr static float _camSpeed = 0.2f;
 
@@ -140,16 +140,16 @@ public:
 
 	struct SDL_Window* _window{ nullptr };
 
-	//initializes everything in the engine
+	// initializes everything in the engine
 	void init();
 
-	//shuts down the engine
+	// shuts down the engine
 	void cleanup();
 
-	//draw loop
+	// draw loop
 	void draw();
 
-	//run main loop
+	// run main loop
 	void run();
 
 	void on_mouse_motion_callback();
@@ -170,8 +170,10 @@ public:
 
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
 
+	VkSampleCountFlagBits _msaaSamples = VK_SAMPLE_COUNT_8_BIT;
+
 	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
-	float _timeDelta = 0.0f;
+	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
 
 	glm::vec3 _lightPos = { 2.8f, 12.0f, -5.0f };
@@ -195,6 +197,10 @@ public:
 	VkFormat _swapchainImageFormat;
 
 	std::vector<VkImageView> _swapchainImageViews;
+
+	VkImageView _colorImageView;
+	AllocatedImage _colorImage;
+	VkFormat _colorFormat;
 
 	VkImageView _depthImageView;
 	AllocatedImage _depthImage;

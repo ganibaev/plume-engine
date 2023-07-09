@@ -56,6 +56,11 @@ void main()
 	blinnTerm = pow(blinnTerm, 32.0);
 	vec3 specularPointLight = pointLightIntensity * blinnTerm;
 
-	vec3 color = texture(tex[matID], texCoord).xyz;
-	outFragColor = vec4((diffusePointLight + specularPointLight + ambientLight) * color, 1.0f);
+	vec4 color = texture(tex[matID], texCoord).rgba;
+	outFragColor = vec4(diffusePointLight + specularPointLight + ambientLight, 1.0) * color;
+	
+	// alpha test
+	if (outFragColor.a < 0.5) {
+		discard;
+	}
 }
