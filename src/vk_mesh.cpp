@@ -8,48 +8,48 @@ VertexInputDescription Vertex::get_vertex_description()
 	VertexInputDescription description;
 
 	// 1 vertex buffer binding, per-vertex rate
-	VkVertexInputBindingDescription mainBinding = {};
+	vk::VertexInputBindingDescription mainBinding = {};
 	mainBinding.binding = 0;
 	mainBinding.stride = sizeof(Vertex);
-	mainBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
+	mainBinding.inputRate = vk::VertexInputRate::eVertex;
+	
 	description.bindings.push_back(mainBinding);
 
 	// store position at location 0
-	VkVertexInputAttributeDescription positionAttribute = {};
+	vk::VertexInputAttributeDescription positionAttribute = {};
 	positionAttribute.binding = 0;
 	positionAttribute.location = 0;
-	positionAttribute.format = VK_FORMAT_R32G32B32_SFLOAT;
+	positionAttribute.format = vk::Format::eR32G32B32Sfloat;
 	positionAttribute.offset = offsetof(Vertex, position);
-
+	
 	// normals at location 1
-	VkVertexInputAttributeDescription normalAttribute = {};
+	vk::VertexInputAttributeDescription normalAttribute = {};
 	normalAttribute.binding = 0;
 	normalAttribute.location = 1;
-	normalAttribute.format = VK_FORMAT_R32G32B32_SFLOAT;
+	normalAttribute.format = vk::Format::eR32G32B32Sfloat;
 	normalAttribute.offset = offsetof(Vertex, normal);
 
 	// colors at location 2
-	VkVertexInputAttributeDescription colorAttribute = {};
+	vk::VertexInputAttributeDescription colorAttribute = {};
 	colorAttribute.binding = 0;
 	colorAttribute.location = 2;
-	colorAttribute.format = VK_FORMAT_R32G32B32_SFLOAT;
+	colorAttribute.format = vk::Format::eR32G32B32Sfloat;
 	colorAttribute.offset = offsetof(Vertex, color);
 
 	// UV at location 3
-	VkVertexInputAttributeDescription uvAttribute = {};
+	vk::VertexInputAttributeDescription uvAttribute = {};
 	uvAttribute.binding = 0;
 	uvAttribute.location = 3;
-	uvAttribute.format = VK_FORMAT_R32G32_SFLOAT;
+	uvAttribute.format = vk::Format::eR32G32Sfloat;
 	uvAttribute.offset = offsetof(Vertex, uv);
 
 	// material ID at location 4
-	VkVertexInputAttributeDescription materialIDAttribute = {};
+	vk::VertexInputAttributeDescription materialIDAttribute = {};
 	materialIDAttribute.binding = 0;
 	materialIDAttribute.location = 4;
-	materialIDAttribute.format = VK_FORMAT_R32_UINT;
+	materialIDAttribute.format = vk::Format::eR32Uint;
 	materialIDAttribute.offset = offsetof(Vertex, materialID);
-
+	
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);

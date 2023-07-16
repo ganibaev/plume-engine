@@ -3,19 +3,19 @@
 
 #pragma once
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan.hpp>
 
 #include "vk_mem_alloc.h"
 
 struct AllocatedBuffer
 {
-	VkBuffer _buffer;
+	vk::Buffer _buffer;
 	VmaAllocation _allocation;
 };
 
 struct AllocatedImage
 {
 	uint32_t _mipLevels;
-	VkImage _image;
+	vk::Image _image;
 	VmaAllocation _allocation;
 };

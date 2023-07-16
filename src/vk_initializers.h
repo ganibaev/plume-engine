@@ -8,35 +8,43 @@
 
 namespace vkinit {
 
-	VkCommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);
-	VkCommandBufferAllocateInfo command_buffer_allocate_info(VkCommandPool pool, uint32_t count = 1, VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-
-	VkCommandBufferBeginInfo command_buffer_begin_info(VkCommandBufferUsageFlags flags = 0);
-	VkSubmitInfo submit_info(VkCommandBuffer* cmd);
-
-	VkSemaphoreCreateInfo semaphore_create_info(VkSemaphoreCreateFlags flags = 0);
-	VkFenceCreateInfo fence_create_info(VkFenceCreateFlags flags = 0);
-
-	VkShaderModuleCreateInfo sm_create_info(const std::vector<uint32_t>& buffer);
-
-	VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shaderModule);
-	VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info();
-	VkPipelineInputAssemblyStateCreateInfo input_assembly_create_info(VkPrimitiveTopology topology);
-	VkPipelineRasterizationStateCreateInfo rasterization_state_create_info(VkPolygonMode polygonMode, VkCullModeFlags cullMode = VK_CULL_MODE_NONE);
-	VkPipelineMultisampleStateCreateInfo multisampling_state_create_info(VkSampleCountFlagBits numSamples);
-	VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, VkCompareOp compareOp);
-
-	VkRenderPassBeginInfo render_pass_begin_info(VkRenderPass renderPass, VkExtent2D windowExtent, VkFramebuffer framebuffer);
+	vk::CommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, vk::CommandPoolCreateFlags flags = {});
+	vk::CommandBufferAllocateInfo command_buffer_allocate_info(vk::CommandPool pool, uint32_t count = 1, 
+		vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary);
 	
-	VkPipelineColorBlendAttachmentState color_blend_attachment_state(VkBool32 blendEnable = VK_FALSE);
-	VkPipelineLayoutCreateInfo pipeline_layout_create_info();
+	vk::CommandBufferBeginInfo command_buffer_begin_info(vk::CommandBufferUsageFlags flags = {});
+	vk::SubmitInfo submit_info(vk::CommandBuffer* cmd);
 
-	VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent, uint32_t mipLevels, VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT);
-	VkImageViewCreateInfo image_view_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
+	vk::SemaphoreCreateInfo semaphore_create_info(vk::SemaphoreCreateFlags flags = {});
+	vk::FenceCreateInfo fence_create_info(vk::FenceCreateFlags flags = {});
 
-	VkDescriptorSetLayoutBinding descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount = 1);
-	VkWriteDescriptorSet write_descriptor_buffer(VkDescriptorType type, VkDescriptorSet dstSet, VkDescriptorBufferInfo* bufferInfo, uint32_t binding);
+	vk::ShaderModuleCreateInfo sm_create_info(const std::vector<uint32_t>& buffer);
 
-	VkSamplerCreateInfo sampler_create_info(VkFilter magFilter, VkFilter minFilter, uint32_t mipLevels = 1, float maxLod = VK_LOD_CLAMP_NONE, VkSamplerAddressMode samplerAddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT);
-	VkWriteDescriptorSet write_descriptor_image(VkDescriptorType type, VkDescriptorSet dstSet, VkDescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount = 1);
+	vk::PipelineShaderStageCreateInfo pipeline_shader_stage_create_info(vk::ShaderStageFlagBits stage, vk::ShaderModule shaderModule);
+	vk::PipelineVertexInputStateCreateInfo vertex_input_state_create_info();
+	vk::PipelineInputAssemblyStateCreateInfo input_assembly_create_info(vk::PrimitiveTopology topology);
+	vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info(vk::PolygonMode polygonMode, 
+		vk::CullModeFlags cullMode = vk::CullModeFlagBits::eNone);
+	vk::PipelineMultisampleStateCreateInfo multisampling_state_create_info(vk::SampleCountFlagBits numSamples);
+	vk::PipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, vk::CompareOp compareOp);
+	
+	vk::RenderPassBeginInfo render_pass_begin_info(vk::RenderPass renderPass, vk::Extent2D windowExtent, vk::Framebuffer framebuffer);
+	
+	vk::PipelineColorBlendAttachmentState color_blend_attachment_state(vk::Bool32 blendEnable = VK_FALSE);
+	vk::PipelineLayoutCreateInfo pipeline_layout_create_info();
+
+	vk::ImageCreateInfo image_create_info(vk::Format format, vk::ImageUsageFlags usageFlags, vk::Extent3D extent,
+		uint32_t mipLevels, vk::SampleCountFlagBits numSamples = vk::SampleCountFlagBits::e1);
+	vk::ImageViewCreateInfo image_view_create_info(vk::Format format, vk::Image image, vk::ImageAspectFlags aspectFlags, 
+		uint32_t mipLevels);
+	
+	vk::DescriptorSetLayoutBinding descriptor_set_layout_binding(vk::DescriptorType type,
+		vk::ShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount = 1);
+	vk::WriteDescriptorSet write_descriptor_buffer(vk::DescriptorType type, vk::DescriptorSet dstSet,
+		vk::DescriptorBufferInfo* bufferInfo, uint32_t binding);
+
+	vk::SamplerCreateInfo sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, uint32_t mipLevels = 1,
+		float maxLod = VK_LOD_CLAMP_NONE, vk::SamplerAddressMode samplerAddressMode = vk::SamplerAddressMode::eRepeat);
+	vk::WriteDescriptorSet write_descriptor_image(vk::DescriptorType type, vk::DescriptorSet dstSet,
+		vk::DescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount = 1);
 }

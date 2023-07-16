@@ -8,10 +8,10 @@
 
 struct VertexInputDescription
 {
-	std::vector<VkVertexInputBindingDescription> bindings;
-	std::vector<VkVertexInputAttributeDescription> attributes;
+	std::vector<vk::VertexInputBindingDescription> bindings;
+	std::vector<vk::VertexInputAttributeDescription> attributes;
 
-	VkPipelineVertexInputStateCreateFlags flags = 0;
+	vk::PipelineVertexInputStateCreateFlags flags;
 };
 
 struct Vertex

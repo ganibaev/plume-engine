@@ -17,32 +17,32 @@
 
 class PipelineBuilder {
 public:
-	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
-	VkPipelineVertexInputStateCreateInfo _vertexInputInfo;
-	VkPipelineInputAssemblyStateCreateInfo _inputAssembly;
-	VkViewport _viewport;
-	VkRect2D _scissor;
-	VkPipelineRasterizationStateCreateInfo _rasterizer;
-	VkPipelineColorBlendAttachmentState _colorBlendAttachment;
-	VkPipelineMultisampleStateCreateInfo _multisampling;
-	VkPipelineDepthStencilStateCreateInfo _depthStencil;
-	VkPipelineLayout _pipelineLayout;
+	std::vector<vk::PipelineShaderStageCreateInfo> _shaderStages;
+	vk::PipelineVertexInputStateCreateInfo _vertexInputInfo;
+	vk::PipelineInputAssemblyStateCreateInfo _inputAssembly;
+	vk::Viewport _viewport;
+	vk::Rect2D _scissor;
+	vk::PipelineRasterizationStateCreateInfo _rasterizer;
+	vk::PipelineColorBlendAttachmentState _colorBlendAttachment;
+	vk::PipelineMultisampleStateCreateInfo _multisampling;
+	vk::PipelineDepthStencilStateCreateInfo _depthStencil;
+	vk::PipelineLayout _pipelineLayout;
 	
-	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
+	vk::Pipeline buildPipeline(vk::Device device, vk::RenderPass pass);
 };
 
 struct Material
 {
-	VkDescriptorSet textureSet{	VK_NULL_HANDLE };
-	VkPipeline pipeline;
-	VkPipelineLayout pipelineLayout;
+	vk::DescriptorSet textureSet{	VK_NULL_HANDLE };
+	vk::Pipeline pipeline;
+	vk::PipelineLayout pipelineLayout;
 };
 
 struct UploadContext
 {
-	VkFence _uploadFence;
-	VkCommandPool _commandPool;
-	VkCommandBuffer _commandBuffer;
+	vk::Fence _uploadFence;
+	vk::CommandPool _commandPool;
+	vk::CommandBuffer _commandBuffer;
 };
 
 struct RenderObject
@@ -94,19 +94,19 @@ struct GPUObjectData
 struct Texture
 {
 	AllocatedImage image;
-	VkImageView imageView;
+	vk::ImageView imageView;
 };
 
 struct FrameData
 {
-	VkSemaphore _presentSemaphore, _renderSemaphore;
-	VkFence _renderFence;
+	vk::Semaphore _presentSemaphore, _renderSemaphore;
+	vk::Fence _renderFence;
 
-	VkCommandPool _commandPool;
-	VkCommandBuffer _mainCommandBuffer;
+	vk::CommandPool _commandPool;
+	vk::CommandBuffer _mainCommandBuffer;
 
 	AllocatedBuffer _objectBuffer;
-	VkDescriptorSet _objectDescriptor;
+	vk::DescriptorSet _objectDescriptor;
 };
 
 struct DeletionQueue {
@@ -136,7 +136,7 @@ public:
 	
 	constexpr static float _camSpeed = 0.2f;
 
-	VkExtent2D _windowExtent{ 1700 , 900 };
+	vk::Extent2D _windowExtent{ 1700 , 900 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -158,20 +158,20 @@ public:
 
 	VmaAllocator _allocator;
 
-	VkInstance _instance; // Vulkan library handle
-	VkDebugUtilsMessengerEXT _debug_messenger; 
-	VkPhysicalDevice _chosenGPU; // default GPU
-	VkDevice _device; // commands will be executed on this 
-	VkSurfaceKHR _surface; // window surface
+	vk::Instance _instance; // Vulkan library handle
+	vk::DebugUtilsMessengerEXT _debug_messenger; 
+	vk::PhysicalDevice _chosenGPU; // default GPU
+	vk::Device _device; // commands will be executed on this 
+	vk::SurfaceKHR _surface; // window surface
 
-	VkPhysicalDeviceProperties _gpuProperties;
+	vk::PhysicalDeviceProperties _gpuProperties;
 
 	UploadContext _uploadContext;
 
-	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
+	void immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function);
 
-	VkSampleCountFlagBits _msaaSamples = VK_SAMPLE_COUNT_8_BIT;
-
+	vk::SampleCountFlagBits _msaaSamples = vk::SampleCountFlagBits::e8;
+	
 	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
@@ -183,44 +183,44 @@ public:
 
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
-	VkDescriptorSetLayout _globalSetLayout;
-	VkDescriptorSetLayout _objectSetLayout;
-	VkDescriptorPool _descriptorPool;
+	vk::DescriptorSetLayout _globalSetLayout;
+	vk::DescriptorSetLayout _objectSetLayout;
+	vk::DescriptorPool _descriptorPool;
 
-	VkDescriptorSet _globalDescriptor;
+	vk::DescriptorSet _globalDescriptor;
 
-	VkDescriptorSetLayout _textureSetLayout;
+	vk::DescriptorSetLayout _textureSetLayout;
 
-	VkSwapchainKHR _swapchain;
+	vk::SwapchainKHR _swapchain;
 
-	std::vector<VkImage> _swapchainImages;
-	VkFormat _swapchainImageFormat;
+	std::vector<vk::Image> _swapchainImages;
+	vk::Format _swapchainImageFormat;
 
-	std::vector<VkImageView> _swapchainImageViews;
+	std::vector<vk::ImageView> _swapchainImageViews;
 
-	VkImageView _colorImageView;
+	vk::ImageView _colorImageView;
 	AllocatedImage _colorImage;
-	VkFormat _colorFormat;
+	vk::Format _colorFormat;
 
-	VkImageView _depthImageView;
+	vk::ImageView _depthImageView;
 	AllocatedImage _depthImage;
-	VkFormat _depthFormat;
+	vk::Format _depthFormat;
 
-	VkQueue _graphicsQueue;
+	vk::Queue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame();
 
-	VkRenderPass _renderPass;
-	std::vector<VkFramebuffer> _framebuffers;
+	vk::RenderPass _renderPass;
+	std::vector<vk::Framebuffer> _framebuffers;
 
 	// load shader module from .spirv
-	bool load_shader_module(const char* filePath, VkShaderModule* outShaderModule);
+	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
-	VkPipelineLayout _meshPipelineLayout;
+	vk::PipelineLayout _meshPipelineLayout;
 
-	AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memUsage);
+	AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
 	
 	std::vector<RenderObject> _renderables;
 
@@ -230,13 +230,13 @@ public:
 	std::unordered_map<std::string, Texture> _loadedTextures;
 
 	// create material and add to the map
-	Material* create_material(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
+	Material* create_material(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
 
 	Material* get_material(const std::string& name);
 
 	Mesh* get_mesh(const std::string& name);
 
-	void draw_objects(VkCommandBuffer cmd, RenderObject* first, int count);
+	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, int count);
 
 	DeletionQueue _mainDeletionQueue;
 private:
