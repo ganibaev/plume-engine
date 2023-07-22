@@ -1,6 +1,10 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : enable
 
+#define DIFFUSE_TEX_SLOT 0U
+#define AMBIENT_TEX_SLOT 1U
+#define SPECULAR_TEX_SLOT 2U
+
 layout (location = 0) in vec3 inColor;
 layout (location = 1) in vec2 texCoord;
 layout (location = 2) flat in uint matID;
@@ -30,7 +34,9 @@ layout (set = 0, binding = 0) uniform CamSceneData
 	vec4 pointLightColor;
 } camSceneData;
 
-layout (set = 2, binding = 0) uniform sampler2D tex[];
+layout (set = 2 + DIFFUSE_TEX_SLOT, binding = 0) uniform sampler2D diffuseTex[];
+layout (set = 2 + AMBIENT_TEX_SLOT, binding = 0) uniform sampler2D ambientTex[];
+layout (set = 2 + SPECULAR_TEX_SLOT, binding = 0) uniform sampler2D specularTex[];
 
 void main()
 {
@@ -56,11 +62,15 @@ void main()
 	blinnTerm = pow(blinnTerm, 32.0);
 	vec3 specularPointLight = pointLightIntensity * blinnTerm;
 
-	vec4 color = texture(tex[matID], texCoord).rgba;
-	outFragColor = vec4(diffusePointLight + specularPointLight + ambientLight, 1.0) * color;
+	vec4 diffuseMaterial = texture(diffuseTex[matID], texCoord).rgba;
+	vec4 ambientMaterial = texture(ambientTex[matID], texCoord).rgba;
+	vec4 specularMaterial = texture(specularTex[matID], texCoord).rgba;
+
+	outFragColor = vec4(diffusePointLight, 1.0) * diffuseMaterial + vec4(specularPointLight, 1.0) * specularMaterial
+		+ vec4(ambientLight, 1.0) * ambientMaterial;
 	
 	// alpha test
-	if (outFragColor.a < 0.5) {
+	if (diffuseMaterial.a < 0.5) {
 		discard;
 	}
 }

@@ -30,7 +30,9 @@ struct Mesh
 	AllocatedBuffer _vertexBuffer;
 	
 	std::vector<std::string> _matNames;
+	std::vector<std::string> _ambientTexNames;
 	std::vector<std::string> _diffuseTexNames;
+	std::vector<std::string> _specularTexNames;
 
 	bool load_from_obj(const char* filePath);
 };

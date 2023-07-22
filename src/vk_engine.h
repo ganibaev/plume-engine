@@ -15,6 +15,8 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
+constexpr int NUM_TEXTURE_TYPES = 3;
+
 class PipelineBuilder {
 public:
 	std::vector<vk::PipelineShaderStageCreateInfo> _shaderStages;
@@ -33,7 +35,9 @@ public:
 
 struct Material
 {
-	vk::DescriptorSet textureSet{	VK_NULL_HANDLE };
+	vk::DescriptorSet diffuseTextureSet;
+	vk::DescriptorSet ambientTextureSet;
+	vk::DescriptorSet specularTextureSet;
 	vk::Pipeline pipeline;
 	vk::PipelineLayout pipelineLayout;
 };
@@ -227,7 +231,7 @@ public:
 	std::unordered_map<std::string, Mesh> _meshes;
 	std::unordered_map<std::string, Material> _materials;
 
-	std::unordered_map<std::string, Texture> _loadedTextures;
+	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
 
 	// create material and add to the map
 	Material* create_material(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);

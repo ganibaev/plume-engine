@@ -83,6 +83,8 @@ bool Mesh::load_from_obj(const char* filePath)
 	}
 
 	_diffuseTexNames.resize(materials.size());
+	_ambientTexNames.resize(materials.size());
+	_specularTexNames.resize(materials.size());
 	_matNames.resize(materials.size());
 
 	for (size_t m = 0; m < materials.size(); ++m)
@@ -92,6 +94,16 @@ bool Mesh::load_from_obj(const char* filePath)
 		if (!materials[m].diffuse_texname.empty())
 		{
 			_diffuseTexNames[m] = matBaseDir + materials[m].diffuse_texname;
+		}
+
+		if (!materials[m].ambient_texname.empty())
+		{
+			_ambientTexNames[m] = matBaseDir + materials[m].ambient_texname;
+		}
+
+		if (!materials[m].specular_texname.empty())
+		{
+			_specularTexNames[m] = matBaseDir + materials[m].specular_texname;
 		}
 	}
 

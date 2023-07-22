@@ -29,6 +29,10 @@
 		}																		\
 	} while (0)
 
+constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
+constexpr uint32_t AMBIENT_TEX_SLOT = 1;
+constexpr uint32_t SPECULAR_TEX_SLOT = 2;
+
 void VulkanEngine::init()
 {
 	// We initialize SDL and create a window with it. 
@@ -503,20 +507,19 @@ void VulkanEngine::init_descriptors()
 
 	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(
 		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0, scene->_diffuseTexNames.size());
-	
+
 	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
 
 	vk::DescriptorSetLayoutCreateInfo texSetInfo = c.get<vk::DescriptorSetLayoutCreateInfo>();
-	texSetInfo.bindingCount = 1;
-	texSetInfo.pBindings = &textureBind;
+	texSetInfo.setBindings(textureBind);
 
 	// Allow for usage of unwritten descriptor sets and variable size arrays of textures
 	vk::DescriptorBindingFlags bindFlags = vk::DescriptorBindingFlagBits::ePartiallyBound |
 		vk::DescriptorBindingFlagBits::eVariableDescriptorCount;
 	
 	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindFlagsInfo = c.get<vk::DescriptorSetLayoutBindingFlagsCreateInfo>();
-	bindFlagsInfo.bindingCount = 1;
-	bindFlagsInfo.pBindingFlags = &bindFlags;
+	bindFlagsInfo.setBindingFlags(bindFlags);
+
 
 	_textureSetLayout = _device.createDescriptorSetLayout(texSetInfo);
 
@@ -601,10 +604,11 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
 
-	vk::DescriptorSetLayout texSetLayouts[] = { _globalSetLayout, _objectSetLayout, _textureSetLayout };
+	vk::DescriptorSetLayout texSetLayouts[] = { 
+		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout
+	};
 
-	texturedPipelineLayoutInfo.setLayoutCount = 3;
-	texturedPipelineLayoutInfo.pSetLayouts = texSetLayouts;
+	texturedPipelineLayoutInfo.setSetLayouts(texSetLayouts);
 
 	vk::PipelineLayout texturedPipelineLayout;
 	texturedPipelineLayout = _device.createPipelineLayout(texturedPipelineLayoutInfo);
@@ -755,24 +759,74 @@ void VulkanEngine::load_images()
 {
 	Mesh* scene = get_mesh("scene");
 
+	Texture diffuse{};
+
 	for (size_t i = 0; i < scene->_diffuseTexNames.size(); ++i)
 	{
-		Texture current{};
 
 		if (!scene->_diffuseTexNames[i].empty())
 		{
-			vkutil::load_image_from_file(this, scene->_diffuseTexNames[i].data(), current.image);
+			vkutil::load_image_from_file(this, scene->_diffuseTexNames[i].data(), diffuse.image);
 
 			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
-				current.image._image, vk::ImageAspectFlagBits::eColor, current.image._mipLevels);
-			current.imageView = _device.createImageView(imageViewInfo);
+				diffuse.image._image, vk::ImageAspectFlagBits::eColor, diffuse.image._mipLevels);
+			diffuse.imageView = _device.createImageView(imageViewInfo);
 
 			_mainDeletionQueue.push_function([=]() {
-				_device.destroyImageView(current.imageView);
+				_device.destroyImageView(diffuse.imageView);
 			});
 		}
 
-		_loadedTextures[scene->_matNames[i]] = current;
+		_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT] = diffuse;
+	}
+
+	for (size_t i = 0; i < scene->_ambientTexNames.size(); ++i)
+	{
+		Texture ambient{};
+
+		if (!scene->_ambientTexNames[i].empty())
+		{
+			vkutil::load_image_from_file(this, scene->_ambientTexNames[i].data(), ambient.image);
+
+			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
+				ambient.image._image, vk::ImageAspectFlagBits::eColor, ambient.image._mipLevels);
+			ambient.imageView = _device.createImageView(imageViewInfo);
+
+			_mainDeletionQueue.push_function([=]() {
+				_device.destroyImageView(ambient.imageView);
+				});
+
+			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] = ambient;
+		}
+		else
+		{
+			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] = diffuse;
+		}
+	}
+
+	for (size_t i = 0; i < scene->_specularTexNames.size(); ++i)
+	{
+		Texture specular{};
+
+		if (!scene->_specularTexNames[i].empty())
+		{
+			vkutil::load_image_from_file(this, scene->_specularTexNames[i].data(), specular.image);
+
+			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
+				specular.image._image, vk::ImageAspectFlagBits::eColor, specular.image._mipLevels);
+			specular.imageView = _device.createImageView(imageViewInfo);
+
+			_mainDeletionQueue.push_function([=]() {
+				_device.destroyImageView(specular.imageView);
+				});
+
+			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] = specular;
+		}
+		else
+		{
+			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] = diffuse;
+		}
+
 	}
 }
 
@@ -805,29 +859,43 @@ void VulkanEngine::init_scene()
 
 	Material* texturedMat = get_material("texturedmesh");
 
-	uint32_t variableDescCount = map.mesh->_diffuseTexNames.size();
+	std::array<uint32_t, NUM_TEXTURE_TYPES> textureVariableDescCounts = {
+		map.mesh->_diffuseTexNames.size(),
+		map.mesh->_ambientTexNames.size(),
+		map.mesh->_specularTexNames.size()
+	};
+
+	std::array<vk::DescriptorSetLayout, NUM_TEXTURE_TYPES> textureSetLayouts = {
+		_textureSetLayout,
+		_textureSetLayout,
+		_textureSetLayout
+	};
 
 	vk::StructureChain<vk::DescriptorSetAllocateInfo, vk::DescriptorSetVariableDescriptorCountAllocateInfo> descCntC;
 
 	vk::DescriptorSetVariableDescriptorCountAllocateInfo variableDescriptorCountAllocInfo =
 		descCntC.get<vk::DescriptorSetVariableDescriptorCountAllocateInfo>();
-	variableDescriptorCountAllocInfo.descriptorSetCount = 1;
-	variableDescriptorCountAllocInfo.pDescriptorCounts = &variableDescCount;
+	variableDescriptorCountAllocInfo.setDescriptorCounts(textureVariableDescCounts);
 
 	vk::DescriptorSetAllocateInfo allocInfo = descCntC.get<vk::DescriptorSetAllocateInfo>();
-	allocInfo.descriptorPool = _descriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &_textureSetLayout;
+	allocInfo.setDescriptorPool(_descriptorPool);
+	allocInfo.setSetLayouts(textureSetLayouts);
 
-	texturedMat->textureSet = _device.allocateDescriptorSets(allocInfo)[0];
+	std::vector<vk::DescriptorSet> texDescriptorSets = _device.allocateDescriptorSets(allocInfo);
 
-	std::vector<vk::DescriptorImageInfo> imageBufferInfos;
-	imageBufferInfos.resize(map.mesh->_diffuseTexNames.size());
+	texturedMat->diffuseTextureSet = texDescriptorSets[DIFFUSE_TEX_SLOT];
+	texturedMat->ambientTextureSet = texDescriptorSets[AMBIENT_TEX_SLOT];
+	texturedMat->specularTextureSet = texDescriptorSets[SPECULAR_TEX_SLOT];
+
+	// fill diffuse descriptor set
+
+	std::vector<vk::DescriptorImageInfo> diffuseImageBufferInfos;
+	diffuseImageBufferInfos.resize(map.mesh->_diffuseTexNames.size());
 
 	for (size_t i = 0; i < map.mesh->_diffuseTexNames.size(); ++i)
 	{
 		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[map.mesh->_matNames[i]].image._mipLevels, VK_LOD_CLAMP_NONE);
+			_loadedTextures[map.mesh->_matNames[i]][DIFFUSE_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
 		
 		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
 
@@ -835,17 +903,67 @@ void VulkanEngine::init_scene()
 			_device.destroySampler(smoothSampler);
 		});
 
-		imageBufferInfos[i].sampler = smoothSampler;
-		imageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		imageBufferInfos[i].imageView = _loadedTextures[map.mesh->_matNames[i]].imageView;
+		diffuseImageBufferInfos[i].sampler = smoothSampler;
+		diffuseImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		diffuseImageBufferInfos[i].imageView = _loadedTextures[map.mesh->_matNames[i]][DIFFUSE_TEX_SLOT].imageView;
+	}
+
+	// fill ambient descriptor set
+
+	std::vector<vk::DescriptorImageInfo> ambientImageBufferInfos;
+	ambientImageBufferInfos.resize(map.mesh->_ambientTexNames.size());
+
+	for (size_t i = 0; i < map.mesh->_ambientTexNames.size(); ++i)
+	{
+		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+			_loadedTextures[map.mesh->_matNames[i]][AMBIENT_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
+
+		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
+
+		_mainDeletionQueue.push_function([=]() {
+			_device.destroySampler(smoothSampler);
+		});
+
+		ambientImageBufferInfos[i].sampler = smoothSampler;
+		ambientImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		ambientImageBufferInfos[i].imageView = _loadedTextures[map.mesh->_matNames[i]][AMBIENT_TEX_SLOT].imageView;
+	}
+
+	// fill specular descriptor set
+
+	std::vector<vk::DescriptorImageInfo> specularImageBufferInfos;
+	specularImageBufferInfos.resize(map.mesh->_specularTexNames.size());
+
+	for (size_t i = 0; i < map.mesh->_specularTexNames.size(); ++i)
+	{
+		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+			_loadedTextures[map.mesh->_matNames[i]][SPECULAR_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
+
+		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
+
+		_mainDeletionQueue.push_function([=]() {
+			_device.destroySampler(smoothSampler);
+		});
+
+		specularImageBufferInfos[i].sampler = smoothSampler;
+		specularImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		specularImageBufferInfos[i].imageView = _loadedTextures[map.mesh->_matNames[i]][SPECULAR_TEX_SLOT].imageView;
 	}
 
 	// write to descriptor sets
 
-	vk::WriteDescriptorSet textureWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMat->textureSet, imageBufferInfos.data(), 0, imageBufferInfos.size());
+	std::array<vk::WriteDescriptorSet, NUM_TEXTURE_TYPES> textureSetWrites;
+
+	textureSetWrites[DIFFUSE_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+		texturedMat->diffuseTextureSet, diffuseImageBufferInfos.data(), 0, diffuseImageBufferInfos.size());
+
+	textureSetWrites[AMBIENT_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+		texturedMat->ambientTextureSet, ambientImageBufferInfos.data(), 0, ambientImageBufferInfos.size());
+
+	textureSetWrites[SPECULAR_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+		texturedMat->specularTextureSet, specularImageBufferInfos.data(), 0, specularImageBufferInfos.size());
 	
-	_device.updateDescriptorSets(textureWrite, {});
+	_device.updateDescriptorSets(textureSetWrites, {});
 }
 
 void VulkanEngine::upload_mesh(Mesh& mesh)
@@ -1136,6 +1254,11 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 	{
 		RenderObject& object = first[i];
 
+		if (!object.mesh || !object.material)
+		{
+			continue;
+		}
+
 		// don't bind already bound pipeline
 		if (object.material != lastMaterial)
 		{
@@ -1152,11 +1275,25 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.material->pipelineLayout, 1, 
 				get_current_frame()._objectDescriptor, {});
 
-			// texture descriptor
-			if (object.material->textureSet)
+			// diffuse texture descriptor
+			if (object.material->diffuseTextureSet)
 			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.material->pipelineLayout, 2, 
-					object.material->textureSet, {});
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.material->pipelineLayout,
+					2 + DIFFUSE_TEX_SLOT, object.material->diffuseTextureSet, {});
+			}
+
+			// ambient texture descriptor
+			if (object.material->ambientTextureSet)
+			{
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.material->pipelineLayout,
+					2 + AMBIENT_TEX_SLOT, object.material->ambientTextureSet, {});
+			}
+
+			// specular texture descriptor
+			if (object.material->specularTextureSet)
+			{
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.material->pipelineLayout,
+					2 + SPECULAR_TEX_SLOT, object.material->specularTextureSet, {});
 			}
 		}
 
@@ -1169,7 +1306,9 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 		constants.num_materials = object.mesh->_matNames.size();
 
 		// upload to GPU
+
 		cmd.pushConstants(object.material->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(MeshPushConstants), &constants);
+
 		if (object.mesh != lastMesh)
 		{
 			vk::DeviceSize offset = 0;
