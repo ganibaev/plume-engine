@@ -1,16 +1,20 @@
 # Plume Engine
 
-![plume-v0 6](https://github.com/ganibaev/plume-engine/assets/55918604/cd3c0214-74da-4d54-bb8c-6dd2c2b45d7f)
+![plume-v0 7](https://github.com/ganibaev/plume-engine/assets/55918604/54a4dcba-2b33-4ac7-812f-899bbf2197d6)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it supports Blinn-Phong lighting, lighting maps, MSAA, fairly complex scene rendering and texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing. It also uses multiple buffers in the swapchain, one dynamic descriptor and one uniform buffer for all frames for both camera and scene data, SSBO for object transform data, and it generates mipmaps.
+Currently it supports Blinn-Phong lighting, lighting maps, MSAA, fairly complex scene rendering and texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
 
-The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the light source in world space with arrow keys (RShift to move up and RCtrl to move down).
+The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the central light source in world space with arrow keys (RShift to move up and RCtrl to move down).
 
 ## Work in progress (loosely arranged in order of priority)
 
-* More advanced lighting (shadows, deferred shading, PBR, etc.)
+* Skybox
+* Shadows
+* Normal & bump maps
+* Deferred shading
+* PBR
 * Basic raytracing
 * GPU driven rendering
 * ...etc.
@@ -19,7 +23,7 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 As the original architecture of the engine is based on the brilliant Vulkan Guide by Victor Blanco, to run it and play around with it on your own, you can follow the instructions here: https://vkguide.dev/docs/chapter-0/building_project/.
 
-Note that Vulkan validation layers are enabled by default. To turn them off, change `request_validation_layers(true)` to `request_validation_layers(false)` on line 83 in the `src/vk_engine.cpp` file.
+Note that Vulkan validation layers are enabled by default. To turn them off, change `request_validation_layers(true)` to `request_validation_layers(false)` on line 84 in the `src/vk_engine.cpp` file.
 
 ## Acknowledgements
 
