@@ -557,7 +557,8 @@ void VulkanEngine::init_descriptors()
 		_device.updateDescriptorSets(setWrites, {});
 
 		_mainDeletionQueue.push_function([=]() {
-			vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(_frames[i]._objectBuffer._buffer), _frames[i]._objectBuffer._allocation);
+			vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(_frames[i]._objectBuffer._buffer),
+				_frames[i]._objectBuffer._allocation);
 		});
 	}
 
@@ -671,7 +672,26 @@ void VulkanEngine::init_pipelines()
 		meshVertShader));
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
 		triangleFragShader));
-	
+
+	// specialization constants for arrays in shaders
+
+	std::array<uint32_t, 1> specCostants = {
+		NUM_LIGHTS
+	};
+
+	vk::SpecializationMapEntry specConstantEntries[1];
+	specConstantEntries[0].setConstantID(0);
+	specConstantEntries[0].setSize(sizeof(specCostants));
+	specConstantEntries[0].setOffset(0);
+
+	vk::SpecializationInfo specInfo;
+	specInfo.setMapEntries(specConstantEntries);
+	specInfo.setDataSize(sizeof(specCostants));
+	specInfo.setPData(specCostants.data());
+
+	pipelineBuilder._shaderStages[1].setPSpecializationInfo(&specInfo);
+
+	// build pipeline
 	pipelineBuilder._pipelineLayout = _meshPipelineLayout;
 
 	vk::Pipeline meshPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
@@ -691,9 +711,13 @@ void VulkanEngine::init_pipelines()
 	}
 
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex, meshVertShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment, texturedMeshShader));
-	
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
+		meshVertShader));
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+		texturedMeshShader));
+
+	pipelineBuilder._shaderStages[1].setPSpecializationInfo(&specInfo);
+
 	pipelineBuilder._pipelineLayout = texturedPipelineLayout;
 
 	vk::Pipeline texPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
@@ -759,10 +783,9 @@ void VulkanEngine::load_images()
 {
 	Mesh* scene = get_mesh("scene");
 
-	Texture diffuse{};
-
 	for (size_t i = 0; i < scene->_diffuseTexNames.size(); ++i)
 	{
+		Texture diffuse{};
 
 		if (!scene->_diffuseTexNames[i].empty())
 		{
@@ -800,7 +823,8 @@ void VulkanEngine::load_images()
 		}
 		else
 		{
-			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] = diffuse;
+			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] =
+				_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT];
 		}
 	}
 
@@ -824,7 +848,8 @@ void VulkanEngine::load_images()
 		}
 		else
 		{
-			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] = diffuse;
+			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] =
+				_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT];
 		}
 
 	}
@@ -846,11 +871,26 @@ void VulkanEngine::init_scene()
 	map.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 })* glm::rotate(glm::radians(90.0f),
 		glm::vec3(0.0f, 1.0f, 0.0f))* glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
-	_sceneParameters.sunlightDirection = glm::normalize(glm::vec4(1.0f, 3.0f, 1.0f, 0.0f));
+	// turning directional light off (w = 0.0) to better highlight point lights,
+	// but keeping the possibility to turn it on if needed
+	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(-14.0f, -3.0f, -1.0f)), 0.0f);
+	_sceneParameters.dirLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.02f };
 
-	_sceneParameters.pointLightPosition = glm::vec4{ _lightPos, 0.0f };
-	_sceneParameters.pointLightColor = glm::vec4{ 1.0f, 1.0f, 1.0f, 500.0f };
+	PointLight centralLight = {};
+	centralLight.position = glm::vec4{ _centralLightPos, 0.0f };
+	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 200.0f };
+	_sceneParameters.pointLights[0] = centralLight;
+
+	PointLight leftLight = {};
+	leftLight.position = glm::vec4{ -16.8f, 3.0f, -5.0f, 0.0f };
+	leftLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 100.0f };
+
+	PointLight rightLight = {};
+	rightLight.position = glm::vec4{ 21.8f, 3.0f, -5.0f, 0.0f };
+	rightLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 100.0f };
+	_sceneParameters.pointLights[1] = leftLight;
+	_sceneParameters.pointLights[2] = rightLight;
 
 	_renderables.push_back(map);
 	_renderables.push_back(monkey);
@@ -1218,7 +1258,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 	camData.proj = projection;
 	camData.viewproj = projection * view;
 
-	_sceneParameters.pointLightPosition = glm::vec4{ _lightPos, 0.0f };
+	_sceneParameters.pointLights[0].position = glm::vec4{_centralLightPos, 0.0f};
 
 	char* data;
 
@@ -1360,22 +1400,22 @@ void VulkanEngine::on_keyboard_event_callback(SDL_Keycode sym)
 		_camera.process_keyboard(CameraMovement::RIGHT, _deltaTime);
 		break;
 	case SDLK_RSHIFT:
-		_lightPos.y += _camSpeed;
+		_centralLightPos.y += _camSpeed;
 		break;
 	case SDLK_RCTRL:
-		_lightPos.y -= _camSpeed;
+		_centralLightPos.y -= _camSpeed;
 		break;
 	case SDLK_UP:
-		_lightPos.z -= _camSpeed;
+		_centralLightPos.z -= _camSpeed;
 		break;
 	case SDLK_DOWN:
-		_lightPos.z += _camSpeed;
+		_centralLightPos.z += _camSpeed;
 		break;
 	case SDLK_LEFT:
-		_lightPos.x -= _camSpeed;
+		_centralLightPos.x -= _camSpeed;
 		break;
 	case SDLK_RIGHT:
-		_lightPos.x += _camSpeed;
+		_centralLightPos.x += _camSpeed;
 		break;
 	default:
 		break;

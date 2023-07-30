@@ -68,7 +68,8 @@ struct MeshPushConstants
 	glm::uint num_materials;
 };
 
-constexpr unsigned int FRAME_OVERLAP = 3;
+constexpr uint32_t FRAME_OVERLAP = 3;
+constexpr uint32_t NUM_LIGHTS = 3;
 
 struct GPUCameraData
 {
@@ -78,16 +79,25 @@ struct GPUCameraData
 	glm::mat4 viewproj;
 };
 
+struct DirectionalLight
+{
+	glm::vec4 direction; // w for sun power
+	glm::vec4 color;
+};
+
+struct PointLight
+{
+	glm::vec4 position;
+	glm::vec4 color; // w for light intensity
+};
+
 struct GPUSceneData
 {
 	glm::vec4 fogColor; // w for exponent
 	glm::vec4 fogDistances; // x -- min, y -- max
 	glm::vec4 ambientLight; // a for ambient light intensity
-	glm::vec4 sunlightDirection; // w for sun power
-	glm::vec4 sunlightColor;
-	// point light
-	glm::vec4 pointLightPosition;
-	glm::vec4 pointLightColor; // w for light intensity
+	DirectionalLight dirLight;
+	std::array<PointLight, NUM_LIGHTS> pointLights;
 };
 
 struct GPUObjectData
@@ -180,7 +190,7 @@ public:
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
 
-	glm::vec3 _lightPos = { 2.8f, 12.0f, -5.0f };
+	glm::vec3 _centralLightPos = { 2.8f, 12.0f, -5.0f };
 
 	GPUSceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;

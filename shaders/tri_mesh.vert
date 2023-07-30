@@ -12,19 +12,17 @@ layout (location = 2) flat out uint matID;
 layout (location = 3) out vec3 fragPosWorld;
 layout (location = 4) out vec3 fragNormalWorld;
 
-layout (set = 0, binding = 0) uniform CameraBuffer
+struct CameraData
 {
 	mat4 view;
 	mat4 invView;
 	mat4 proj;
 	mat4 viewproj;
-	vec4 fogColor; // w for exponent
-	vec4 fogDistances; // x -- min, y -- max
-	vec4 ambientLight;
-	vec4 sunlightDirection; // w for sun power
-	vec4 sunlightColor;
-	vec4 pointLightPosition;
-	vec4 pointLightColor;
+};
+
+layout (set = 0, binding = 0) uniform CameraBuffer
+{
+	CameraData camData;
 } camSceneData;
 
 struct ObjectData
@@ -50,13 +48,11 @@ void main()
 
 	// normal transform, no non-uniform scaling
 	fragNormalWorld = normalize(modelMatrix * vec4(vNormal, 0.0)).xyz;
-	// lightIntensity = max(dot(normalWorldSpace, camSceneData.sunlightDirection.xyz), 0) + camSceneData.ambientLight.a;
 
 	vec4 vPositionWorld = modelMatrix * vec4(vPosition, 1.0);
 	fragPosWorld = vPositionWorld.xyz;
 
-	// mat4 transformMatrix = (camSceneData.viewproj * modelMatrix);
-	gl_Position = camSceneData.viewproj * vPositionWorld;
+	gl_Position = camSceneData.camData.viewproj * vPositionWorld;
 
 	outColor = vColor;
 	texCoord = vTexCoord;
