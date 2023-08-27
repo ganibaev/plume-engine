@@ -6,6 +6,10 @@
 #include <glm/vec2.hpp>
 #include <string>
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 struct VertexInputDescription
 {
 	std::vector<vk::VertexInputBindingDescription> bindings;
@@ -28,11 +32,26 @@ struct Mesh
 {
 	std::vector<Vertex> _vertices;
 	AllocatedBuffer _vertexBuffer;
-	
+	std::vector<uint32_t> _indices;
+	AllocatedBuffer _indexBuffer;
+};
+
+struct Model
+{
+	std::vector<Mesh> _meshes;
+
 	std::vector<std::string> _matNames;
 	std::vector<std::string> _ambientTexNames;
 	std::vector<std::string> _diffuseTexNames;
 	std::vector<std::string> _specularTexNames;
 
-	bool load_from_obj(const char* filePath);
+	std::string _directory;
+
+	bool load_assimp(std::string filePath);
+	bool load_from_obj(std::string filePath);
+
+	void process_node(aiNode* node, const aiScene& scene);
+	void process_mesh(aiMesh* mesh, const aiScene& scene);
+
+	void load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names);
 };

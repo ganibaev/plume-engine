@@ -58,9 +58,129 @@ VertexInputDescription Vertex::get_vertex_description()
 	return description;
 }
 
-bool Mesh::load_from_obj(const char* filePath)
+bool Model::load_assimp(std::string filePath)
 {
-	std::string matBaseDir = "../../assets/";
+	Assimp::Importer importer;
+	const aiScene* scene = importer.ReadFile(filePath, aiProcess_Triangulate | aiProcess_FlipUVs);
+
+	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+	{
+		std::cout << "ERROR::ASSIMP::" << importer.GetErrorString() << std::endl;
+		return false;
+	}
+
+	size_t dirPosWin = filePath.find_last_of('\\');
+	size_t dirPosUnix = filePath.find_last_of('/');
+
+	_directory = filePath.substr(0, dirPosUnix == std::string::npos ? dirPosWin : dirPosUnix) + '/';
+
+	for (size_t i = 0; i < scene->mNumMaterials; ++i)
+	{
+		aiMaterial* material = scene->mMaterials[i];
+
+		_matNames.push_back(material->GetName().C_Str());
+		load_texture_names(material, aiTextureType_DIFFUSE, _diffuseTexNames);
+		load_texture_names(material, aiTextureType_AMBIENT, _ambientTexNames);
+		load_texture_names(material, aiTextureType_SPECULAR, _specularTexNames);
+	}
+
+	process_node(scene->mRootNode, *scene);
+	return true;
+}
+
+void Model::process_node(aiNode* node, const aiScene& scene)
+{
+	for (size_t i = 0; i < node->mNumMeshes; ++i)
+	{
+		aiMesh* mesh = scene.mMeshes[node->mMeshes[i]];
+		process_mesh(mesh, scene);
+	}
+
+	for (size_t i = 0; i < node->mNumChildren; ++i)
+	{
+		process_node(node->mChildren[i], scene);
+	}
+}
+
+void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
+{
+	Mesh newMesh = {};
+	
+	aiMaterial* material = nullptr;
+
+	if (mesh->mMaterialIndex >= 0)
+	{
+		material = scene.mMaterials[mesh->mMaterialIndex];
+	}
+
+	for (size_t i = 0; i < mesh->mNumVertices; ++i)
+	{
+		Vertex newVertex = {};
+
+		newVertex.position.x = mesh->mVertices[i].x;
+		newVertex.position.y = mesh->mVertices[i].y;
+		newVertex.position.z = mesh->mVertices[i].z;
+
+		newVertex.normal.x = mesh->mNormals[i].x;
+		newVertex.normal.y = mesh->mNormals[i].y;
+		newVertex.normal.z = mesh->mNormals[i].z;
+
+		if (mesh->mTextureCoords[0])
+		{
+			newVertex.uv.x = mesh->mTextureCoords[0][i].x;
+			newVertex.uv.y = mesh->mTextureCoords[0][i].y;
+		}
+		else
+		{
+			newVertex.uv = glm::vec2(0.0f, 0.0f);
+		}
+
+		if (material)
+		{
+			newVertex.materialID = mesh->mMaterialIndex;
+		}
+		newVertex.color = newVertex.normal;
+
+		newMesh._vertices.push_back(newVertex);
+	}
+
+	for (size_t i = 0; i < mesh->mNumFaces; ++i)
+	{
+		aiFace face = mesh->mFaces[i];
+		for (size_t j = 0; j < face.mNumIndices; ++j)
+		{
+			newMesh._indices.push_back(face.mIndices[j]);
+		}
+	}
+
+	_meshes.push_back(std::move(newMesh));
+}
+
+void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names)
+{
+	size_t texCount = mat->GetTextureCount(type);
+	if (texCount == 0)
+	{
+		names.push_back("");
+		return;
+	}
+	for (size_t i = 0; i < texCount; ++i)
+	{
+		aiString name;
+		if (mat->GetTexture(type, i, &name) != aiReturn_FAILURE)
+		{
+			names.push_back(_directory + name.C_Str());
+		}
+		else
+		{
+			names.push_back("");
+		}
+	}
+}
+
+bool Model::load_from_obj(std::string filePath)
+{
+	std::string matBaseDir = "../../../assets/";
 
 	tinyobj::attrib_t vertexAttributes;
 	std::vector<tinyobj::shape_t> shapes;
@@ -69,7 +189,7 @@ bool Mesh::load_from_obj(const char* filePath)
 	std::string warn;
 	std::string err;
 
-	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath, matBaseDir.data());
+	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath.data(), matBaseDir.data());
 
 	if (!warn.empty())
 	{
@@ -109,10 +229,13 @@ bool Mesh::load_from_obj(const char* filePath)
 
 	for (size_t s = 0; s < shapes.size(); ++s)
 	{
+		Mesh newMesh;
+
 		size_t indexOffset = 0;
 		constexpr int verticesPerFace = 3;
 
-		_vertices.reserve(_vertices.size() + shapes[s].mesh.num_face_vertices.size() * verticesPerFace);
+		newMesh._vertices.reserve(newMesh._vertices.size() +
+			shapes[s].mesh.num_face_vertices.size() * verticesPerFace);
 
 		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f)
 		{
@@ -141,7 +264,7 @@ bool Mesh::load_from_obj(const char* filePath)
 				newVertex.normal.y = ny;
 				newVertex.normal.z = nz;
 
-				// we will basically draw a normal buffer by default
+				// draw normals as default material
 				newVertex.color = newVertex.normal;
 
 				// vertex uv
@@ -153,7 +276,7 @@ bool Mesh::load_from_obj(const char* filePath)
 
 				newVertex.materialID = shapes[s].mesh.material_ids[f];
 
-				_vertices.push_back(newVertex);
+				newMesh._vertices.push_back(newVertex);
 			}
 			indexOffset += verticesPerFace;
 		}

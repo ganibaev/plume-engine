@@ -27,7 +27,8 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
 
 	// hold texture data
-	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+		VMA_MEMORY_USAGE_CPU_ONLY);
 	
 	// copy data to buffer
 	void* data;

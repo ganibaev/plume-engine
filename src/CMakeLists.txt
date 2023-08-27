@@ -14,11 +14,13 @@ add_executable(plume
     vk_textures.cpp
     vk_textures.h)
 
-
 set_property(TARGET plume PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:plume>")
 
-target_include_directories(plume PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(plume vkbootstrap vma glm tinyobjloader imgui stb_image)
+target_include_directories(plume PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_BINARY_DIR}/third_party/assimp/include")
+
+target_link_libraries(plume vkbootstrap vma glm tinyobjloader imgui stb_image assimp)
 
 target_link_libraries(plume Vulkan::Vulkan sdl2)
 

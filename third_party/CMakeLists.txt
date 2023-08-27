@@ -59,4 +59,20 @@ target_sources(imgui PRIVATE
 
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan sdl2)
 
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build assimp tools")
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Build assimp tests")
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Build assimp samples")
+
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "Build importer")
+
+set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "Build importer")
+
+set(ASSIMP_INSTALL OFF CACHE BOOL "Use as submodule")
+
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "No exporters by default")
+
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "No importers by default")
+
+add_subdirectory(assimp)
+
 target_include_directories(stb_image INTERFACE stb_image)

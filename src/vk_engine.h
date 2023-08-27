@@ -33,7 +33,7 @@ public:
 	vk::Pipeline buildPipeline(vk::Device device, vk::RenderPass pass);
 };
 
-struct Material
+struct MaterialSet
 {
 	vk::DescriptorSet diffuseTextureSet;
 	vk::DescriptorSet ambientTextureSet;
@@ -52,12 +52,13 @@ struct UploadContext
 struct RenderObject
 {
 	Mesh* mesh;
-	Material* material;
+	Model* model;
+	MaterialSet* materialSet;
 	glm::mat4 transformMatrix;
 
 	bool operator<(const RenderObject& other) const
 	{
-		return std::tie(material, mesh) < std::tie(other.material, other.mesh);
+		return std::tie(materialSet, mesh) < std::tie(other.materialSet, other.mesh);
 	}
 };
 
@@ -238,17 +239,17 @@ public:
 	
 	std::vector<RenderObject> _renderables;
 
-	std::unordered_map<std::string, Mesh> _meshes;
-	std::unordered_map<std::string, Material> _materials;
+	std::unordered_map<std::string, Model> _models;
+	std::unordered_map<std::string, MaterialSet> _materialSets;
 
 	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
 
-	// create material and add to the map
-	Material* create_material(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
+	// create material set and add to the map
+	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
 
-	Material* get_material(const std::string& name);
+	MaterialSet* get_material_set(const std::string& name);
 
-	Mesh* get_mesh(const std::string& name);
+	Model* get_model(const std::string& name);
 
 	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, int count);
 
