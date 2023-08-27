@@ -78,10 +78,18 @@ bool Model::load_assimp(std::string filePath)
 	{
 		aiMaterial* material = scene->mMaterials[i];
 
-		_matNames.push_back(material->GetName().C_Str());
-		load_texture_names(material, aiTextureType_DIFFUSE, _diffuseTexNames);
+		std::string matName = material->GetName().C_Str();
+		std::string diffTexName = "";
+
+		load_texture_names(material, aiTextureType_DIFFUSE, _diffuseTexNames, &diffTexName);
 		load_texture_names(material, aiTextureType_AMBIENT, _ambientTexNames);
 		load_texture_names(material, aiTextureType_SPECULAR, _specularTexNames);
+
+		if (matName.empty())
+		{
+			matName = diffTexName;
+		}
+		_matNames.push_back(matName);
 	}
 
 	process_node(scene->mRootNode, *scene);
@@ -156,7 +164,7 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 	_meshes.push_back(std::move(newMesh));
 }
 
-void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names)
+void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName)
 {
 	size_t texCount = mat->GetTextureCount(type);
 	if (texCount == 0)
@@ -170,6 +178,10 @@ void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<
 		if (mat->GetTexture(type, i, &name) != aiReturn_FAILURE)
 		{
 			names.push_back(_directory + name.C_Str());
+			if (curName)
+			{
+				*curName = name.C_Str();
+			}
 		}
 		else
 		{

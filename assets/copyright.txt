@@ -1,18 +1,8 @@
-Underground city in the 
-"Lost Empire" area from the Vokselia Minecraft world
-http://vokselia.com
-CC BY 3.0 License http://creativecommons.org/licenses/by/3.0/
-
-224,998 faces
-449,992 vertices 
-after loading and welding colocated vertices
-
-------------------
-Converted to OBJ by Morgan McGuire using Mineways (http://mineways.com)
+PBR textures for the Sponza model.
+For more informations: www.alexandre-pestana.com
 
 
-=============================================================================
-
+Original copyright:
 
 July 14, 2011 Morgan McGuire modified the model from Crytek's OBJ
 export to correct some small errors.  He computed bump maps from the
@@ -35,4 +25,3 @@ August 19, 2010
 The Atrium Sponza Palace, Dubrovnik, is an elegant and improved model created by Frank Meinl. The original Sponza model was created by Marko Dabrovic in early 2002. Over the years, the Sponza Atrium scene has become one of the most popular 3D scenes for testing global illumination and radiosity due to it's specific architectural structure which is particularly complex for global illumination light.
 
 However, nowadays it is considered as a simple model, thus it was decided to crate a new model with highly improved appearance and scene complexity. It is donated to the public for  radiosity and is represented in several different formats (3ds, Obj) for use with various commercial 3D applications and renderers.
-

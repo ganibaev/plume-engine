@@ -761,19 +761,19 @@ void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&&
 
 void VulkanEngine::load_meshes()
 {
-	Model monkeyModel;
+	Model suzanneModel;
 
-	monkeyModel.load_assimp("../../../assets/monkey_smooth.obj");
+	suzanneModel.load_assimp("../../../assets/suzanne/Suzanne.gltf");
 
-	for (Mesh& mesh : monkeyModel._meshes)
+	for (Mesh& mesh : suzanneModel._meshes)
 	{
 		upload_mesh(mesh);
 	}
 
-	_models["monkey"] = monkeyModel;
+	_models["suzanne"] = suzanneModel;
 
 	Model scene;
-	scene.load_assimp("../../../assets/sponza.obj");
+	scene.load_assimp("../../../assets/sponza/Sponza.gltf");
 
 	for (Mesh& mesh : scene._meshes)
 	{
@@ -876,14 +876,14 @@ void VulkanEngine::load_images()
 
 void VulkanEngine::init_scene()
 {
-	RenderObject monkey = {};
-	monkey.model = get_model("monkey");
-	monkey.materialSet = get_material_set("defaultmesh");
-	monkey.mesh = &(monkey.model->_meshes.front());
+	RenderObject suzanne = {};
+	suzanne.model = get_model("suzanne");
+	suzanne.materialSet = get_material_set("defaultmesh");
+	suzanne.mesh = &(suzanne.model->_meshes.front());
 	//glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(5.0f, 5.0f, 5.0f));
 	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-	monkey.transformMatrix = meshTranslate;
+	suzanne.transformMatrix = meshTranslate;
 	
 	Model* pSceneModel = get_model("scene");
 	if (!pSceneModel)
@@ -929,7 +929,7 @@ void VulkanEngine::init_scene()
 	_sceneParameters.pointLights[1] = leftLight;
 	_sceneParameters.pointLights[2] = rightLight;
 
-	_renderables.push_back(monkey);
+	_renderables.push_back(suzanne);
 	
 	// create descriptor set for texture(s)
 

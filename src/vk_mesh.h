@@ -53,5 +53,5 @@ struct Model
 	void process_node(aiNode* node, const aiScene& scene);
 	void process_mesh(aiMesh* mesh, const aiScene& scene);
 
-	void load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names);
+	void load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName = nullptr);
 };
