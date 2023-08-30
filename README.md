@@ -1,6 +1,6 @@
 # Plume Engine
 
-![plume-v0 7](https://github.com/ganibaev/plume-engine/assets/55918604/54a4dcba-2b33-4ac7-812f-899bbf2197d6)
+![plume-v0 8](https://github.com/ganibaev/plume-engine/assets/55918604/8efe06d8-c001-4f2f-aeb7-d3588c0b3f81)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
@@ -10,7 +10,6 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 ## Work in progress (loosely arranged in order of priority)
 
-* Skybox
 * Shadows
 * Normal & bump maps
 * Deferred shading
