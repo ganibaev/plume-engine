@@ -38,6 +38,7 @@ struct MaterialSet
 	vk::DescriptorSet diffuseTextureSet;
 	vk::DescriptorSet ambientTextureSet;
 	vk::DescriptorSet specularTextureSet;
+	vk::DescriptorSet skyboxSet;
 	vk::Pipeline pipeline;
 	vk::PipelineLayout pipelineLayout;
 };
@@ -191,7 +192,7 @@ public:
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
 
-	glm::vec3 _centralLightPos = { 2.8f, 12.0f, -5.0f };
+	glm::vec3 _centralLightPos = { 2.8f, 10.0f, 17.5f };
 
 	GPUSceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;
@@ -205,6 +206,7 @@ public:
 	vk::DescriptorSet _globalDescriptor;
 
 	vk::DescriptorSetLayout _textureSetLayout;
+	vk::DescriptorSetLayout _cubemapSetLayout;
 
 	vk::SwapchainKHR _swapchain;
 
@@ -244,6 +246,8 @@ public:
 
 	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
 
+	Texture _skybox;
+
 	// create material set and add to the map
 	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
 
@@ -269,9 +273,16 @@ private:
 
 	void init_pipelines();
 
+	void fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>& texBufferInfos,
+		const std::vector<std::string>& texNames, Model* model, uint32_t texSlot);
+
 	void init_scene();
 
 	void load_meshes();
+
+	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName, uint32_t texSlot);
+
+	void load_skybox(Texture& skybox, const std::string& directory);
 
 	void load_images();
 

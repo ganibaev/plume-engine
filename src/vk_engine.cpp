@@ -16,6 +16,7 @@
 #include <glm/gtx/transform.hpp>
 
 constexpr static bool ENABLE_VALIDATION_LAYERS = true;
+constexpr static float DRAW_DISTANCE = 2000.0f;
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -34,6 +35,7 @@ constexpr static bool ENABLE_VALIDATION_LAYERS = true;
 constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
 constexpr uint32_t AMBIENT_TEX_SLOT = 1;
 constexpr uint32_t SPECULAR_TEX_SLOT = 2;
+constexpr uint32_t SKYBOX_TEX_SLOT = 3;
 
 void VulkanEngine::init()
 {
@@ -463,7 +465,7 @@ void VulkanEngine::init_descriptors()
 		{ vk::DescriptorType::eUniformBuffer, 10 },
 		{ vk::DescriptorType::eUniformBufferDynamic, 10 },
 		{ vk::DescriptorType::eStorageBuffer, 10 },
-		{ vk::DescriptorType::eCombinedImageSampler, 10 }
+		{ vk::DescriptorType::eCombinedImageSampler, 20 }
 	};
 	
 	vk::DescriptorPoolCreateInfo poolInfo = {};
@@ -497,7 +499,7 @@ void VulkanEngine::init_descriptors()
 	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData));
 
 	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	
+
 	vk::DescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.descriptorPool = _descriptorPool;
 	allocInfo.descriptorSetCount = 1;
@@ -518,19 +520,28 @@ void VulkanEngine::init_descriptors()
 	// Allow for usage of unwritten descriptor sets and variable size arrays of textures
 	vk::DescriptorBindingFlags bindFlags = vk::DescriptorBindingFlagBits::ePartiallyBound |
 		vk::DescriptorBindingFlagBits::eVariableDescriptorCount;
-	
+
 	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindFlagsInfo = c.get<vk::DescriptorSetLayoutBindingFlagsCreateInfo>();
 	bindFlagsInfo.setBindingFlags(bindFlags);
 
-
 	_textureSetLayout = _device.createDescriptorSetLayout(texSetInfo);
+
+	// cubemap set layout
+
+	vk::DescriptorSetLayoutBinding cubemapBind = vkinit::descriptor_set_layout_binding(
+		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0);
+
+	vk::DescriptorSetLayoutCreateInfo cubemapSetInfo;
+	cubemapSetInfo.setBindings(cubemapBind);
+
+	_cubemapSetLayout = _device.createDescriptorSetLayout(cubemapSetInfo);
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		constexpr int MAX_OBJECTS = 10000;
 		_frames[i]._objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS, 
 			vk::BufferUsageFlagBits::eStorageBuffer, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		
+
 		vk::DescriptorSetAllocateInfo objSetAllocInfo = {};
 		objSetAllocInfo.descriptorPool = _descriptorPool;
 		objSetAllocInfo.descriptorSetCount = 1;
@@ -569,6 +580,7 @@ void VulkanEngine::init_descriptors()
 		_device.destroyDescriptorSetLayout(_globalSetLayout);
 		_device.destroyDescriptorSetLayout(_objectSetLayout);
 		_device.destroyDescriptorSetLayout(_textureSetLayout);
+		_device.destroyDescriptorSetLayout(_cubemapSetLayout);
 		_device.destroyDescriptorPool(_descriptorPool);
 	});
 }
@@ -607,7 +619,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
 
-	vk::DescriptorSetLayout texSetLayouts[] = { 
+	vk::DescriptorSetLayout texSetLayouts[] = {
 		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout
 	};
 
@@ -615,6 +627,13 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayout texturedPipelineLayout;
 	texturedPipelineLayout = _device.createPipelineLayout(texturedPipelineLayoutInfo);
+
+	vk::PipelineLayoutCreateInfo skyboxPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+	
+	vk::DescriptorSetLayout skyboxSetLayouts[] = { _globalSetLayout, _objectSetLayout, _cubemapSetLayout };
+	skyboxPipelineLayoutInfo.setSetLayouts(skyboxSetLayouts);
+
+	vk::PipelineLayout skyboxPipelineLayout = _device.createPipelineLayout(skyboxPipelineLayoutInfo);
 
 	// build stage_create_info for vertex and fragment stages
 	// this lets pipeline know about shader modules
@@ -722,19 +741,55 @@ void VulkanEngine::init_pipelines()
 
 	vk::Pipeline texPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
 	create_material_set(texPipeline, texturedPipelineLayout, "texturedmesh");
+	
+	vk::ShaderModule skyboxVertShader;
+
+	if (!load_shader_module("../../../shaders/skybox.vert.spv", &skyboxVertShader))
+	{
+		std::cout << "Error building skybox vertex shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Skybox vertex shader loaded successfully" << std::endl;
+	}
+
+	vk::ShaderModule skyboxFragShader;
+
+	if (!load_shader_module("../../../shaders/skybox.frag.spv", &skyboxFragShader))
+	{
+		std::cout << "Error building skybox fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Skybox fragment shader loaded successfully" << std::endl;
+	}
+
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
+		skyboxVertShader));
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+		skyboxFragShader));
+	pipelineBuilder._pipelineLayout = skyboxPipelineLayout;
+
+	vk::Pipeline skyboxPipeline = pipelineBuilder.buildPipeline(_device, _renderPass);
+	create_material_set(skyboxPipeline, skyboxPipelineLayout, "skybox");
 
 	// shader modules are now built into the pipelines, we don't need them anymore
 
 	_device.destroyShaderModule(meshVertShader);
 	_device.destroyShaderModule(triangleFragShader);
 	_device.destroyShaderModule(texturedMeshShader);
+	_device.destroyShaderModule(skyboxVertShader);
+	_device.destroyShaderModule(skyboxFragShader);
 
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyPipeline(meshPipeline);
 		_device.destroyPipeline(texPipeline);
+		_device.destroyPipeline(skyboxPipeline);
 		
 		_device.destroyPipelineLayout(_meshPipelineLayout);
 		_device.destroyPipelineLayout(texturedPipelineLayout);
+		_device.destroyPipelineLayout(skyboxPipelineLayout);
 	});
 }
 
@@ -781,6 +836,48 @@ void VulkanEngine::load_meshes()
 	}
 
 	_models["scene"] = scene;
+
+	Model cube;
+	cube.load_assimp("../../../assets/cube.gltf");
+
+	for (Mesh& mesh : cube._meshes)
+	{
+		upload_mesh(mesh);
+	}
+
+	_models["cube"] = cube;
+}
+
+void VulkanEngine::load_material_texture(Texture& tex, const std::string& texName,
+	const std::string& matName, uint32_t texSlot)
+{
+	vkutil::load_image_from_file(this, texName.data(), tex.image);
+
+	vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
+		tex.image._image, vk::ImageAspectFlagBits::eColor, tex.image._mipLevels);
+	tex.imageView = _device.createImageView(imageViewInfo);
+
+	_loadedTextures[matName][texSlot] = tex;
+
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroyImageView(tex.imageView);
+	});
+}
+
+void VulkanEngine::load_skybox(Texture& skybox, const std::string& directory)
+{
+	std::vector<std::string> files = {
+		"right.png", "left.png",
+		"top.png", "bottom.png",
+		"front.png", "back.png"
+	};
+
+	for (size_t i = 0; i < files.size(); ++i)
+	{
+		files[i] = directory + files[i];
+	}
+
+	vkutil::load_cubemap_from_files(this, files, skybox.image);
 }
 
 void VulkanEngine::load_images()
@@ -794,17 +891,7 @@ void VulkanEngine::load_images()
 
 		if (!scene->_diffuseTexNames[i].empty())
 		{
-			vkutil::load_image_from_file(this, scene->_diffuseTexNames[i].data(), diffuse.image);
-
-			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
-				diffuse.image._image, vk::ImageAspectFlagBits::eColor, diffuse.image._mipLevels);
-			diffuse.imageView = _device.createImageView(imageViewInfo);
-
-			_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT] = diffuse;
-
-			_mainDeletionQueue.push_function([=]() {
-				_device.destroyImageView(diffuse.imageView);
-			});
+			load_material_texture(diffuse, scene->_diffuseTexNames[i], scene->_matNames[i], DIFFUSE_TEX_SLOT);
 		}
 		else
 		{
@@ -818,27 +905,17 @@ void VulkanEngine::load_images()
 
 			_mainDeletionQueue.push_function([=]() {
 				_device.destroyImageView(defaultTex.imageView);
-				});
+			});
 		}
 	}
 
 	for (size_t i = 0; i < scene->_ambientTexNames.size(); ++i)
 	{
-		Texture ambient{};
+		Texture ambient = {};
 
 		if (!scene->_ambientTexNames[i].empty())
 		{
-			vkutil::load_image_from_file(this, scene->_ambientTexNames[i].data(), ambient.image);
-
-			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
-				ambient.image._image, vk::ImageAspectFlagBits::eColor, ambient.image._mipLevels);
-			ambient.imageView = _device.createImageView(imageViewInfo);
-
-			_mainDeletionQueue.push_function([=]() {
-				_device.destroyImageView(ambient.imageView);
-				});
-
-			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] = ambient;
+			load_material_texture(ambient, scene->_ambientTexNames[i], scene->_matNames[i], AMBIENT_TEX_SLOT);
 		}
 		else
 		{
@@ -849,28 +926,49 @@ void VulkanEngine::load_images()
 
 	for (size_t i = 0; i < scene->_specularTexNames.size(); ++i)
 	{
-		Texture specular{};
+		Texture specular = {};
 
 		if (!scene->_specularTexNames[i].empty())
 		{
-			vkutil::load_image_from_file(this, scene->_specularTexNames[i].data(), specular.image);
-
-			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
-				specular.image._image, vk::ImageAspectFlagBits::eColor, specular.image._mipLevels);
-			specular.imageView = _device.createImageView(imageViewInfo);
-
-			_mainDeletionQueue.push_function([=]() {
-				_device.destroyImageView(specular.imageView);
-				});
-
-			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] = specular;
+			load_material_texture(specular, scene->_specularTexNames[i], scene->_matNames[i], SPECULAR_TEX_SLOT);
 		}
 		else
 		{
 			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] =
 				_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT];
 		}
+	}
 
+	load_skybox(_skybox, "../../../assets/skybox/");
+
+	vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
+		_skybox.image._image, vk::ImageAspectFlagBits::eColor, _skybox.image._mipLevels, ImageType::eCubemap);
+	_skybox.imageView = _device.createImageView(imageViewInfo);
+
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroyImageView(_skybox.imageView);
+	});
+}
+
+void VulkanEngine::fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>& texBufferInfos,
+	const std::vector<std::string>& texNames, Model* model, uint32_t texSlot)
+{
+	texBufferInfos.resize(texNames.size());
+
+	for (size_t i = 0; i < texNames.size(); ++i)
+	{
+		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+			_loadedTextures[model->_matNames[i]][texSlot].image._mipLevels, VK_LOD_CLAMP_NONE);
+
+		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
+
+		_mainDeletionQueue.push_function([=]() {
+			_device.destroySampler(smoothSampler);
+			});
+
+		texBufferInfos[i].sampler = smoothSampler;
+		texBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		texBufferInfos[i].imageView = _loadedTextures[model->_matNames[i]][texSlot].imageView;
 	}
 }
 
@@ -884,7 +982,20 @@ void VulkanEngine::init_scene()
 	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	suzanne.transformMatrix = meshTranslate;
+
+	_renderables.push_back(suzanne);
+
+	RenderObject cube = {};
+	cube.model = get_model("cube");
+	cube.materialSet = get_material_set("skybox");
+	cube.mesh = &(cube.model->_meshes.front());
+	glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(150.0f, 150.0f, 150.0f));
+	//glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
+	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	cube.transformMatrix = meshScale;
 	
+	_renderables.push_back(cube);
+
 	Model* pSceneModel = get_model("scene");
 	if (!pSceneModel)
 	{
@@ -928,8 +1039,6 @@ void VulkanEngine::init_scene()
 	rightLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 100.0f };
 	_sceneParameters.pointLights[1] = leftLight;
 	_sceneParameters.pointLights[2] = rightLight;
-
-	_renderables.push_back(suzanne);
 	
 	// create descriptor set for texture(s)
 
@@ -963,68 +1072,41 @@ void VulkanEngine::init_scene()
 	texturedMatSet->ambientTextureSet = texDescriptorSets[AMBIENT_TEX_SLOT];
 	texturedMatSet->specularTextureSet = texDescriptorSets[SPECULAR_TEX_SLOT];
 
+	vk::DescriptorSetAllocateInfo skyboxAllocInfo = {};
+	skyboxAllocInfo.setDescriptorPool(_descriptorPool);
+	skyboxAllocInfo.setSetLayouts(_cubemapSetLayout);
+
+	MaterialSet* skyboxMatSet = get_material_set("skybox");
+	skyboxMatSet->skyboxSet = _device.allocateDescriptorSets(skyboxAllocInfo)[0];
+
 	// fill diffuse descriptor set
 
 	std::vector<vk::DescriptorImageInfo> diffuseImageBufferInfos;
-	diffuseImageBufferInfos.resize(pSceneModel->_diffuseTexNames.size());
-
-	for (size_t i = 0; i < pSceneModel->_diffuseTexNames.size(); ++i)
-	{
-		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[pSceneModel->_matNames[i]][DIFFUSE_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
-		
-		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
-
-		_mainDeletionQueue.push_function([=]() {
-			_device.destroySampler(smoothSampler);
-		});
-
-		diffuseImageBufferInfos[i].sampler = smoothSampler;
-		diffuseImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		diffuseImageBufferInfos[i].imageView = _loadedTextures[pSceneModel->_matNames[i]][DIFFUSE_TEX_SLOT].imageView;
-	}
+	fill_tex_descriptor_sets(diffuseImageBufferInfos, pSceneModel->_diffuseTexNames, pSceneModel, DIFFUSE_TEX_SLOT);
 
 	// fill ambient descriptor set
 
 	std::vector<vk::DescriptorImageInfo> ambientImageBufferInfos;
-	ambientImageBufferInfos.resize(pSceneModel->_ambientTexNames.size());
-
-	for (size_t i = 0; i < pSceneModel->_ambientTexNames.size(); ++i)
-	{
-		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[pSceneModel->_matNames[i]][AMBIENT_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
-
-		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
-
-		_mainDeletionQueue.push_function([=]() {
-			_device.destroySampler(smoothSampler);
-		});
-
-		ambientImageBufferInfos[i].sampler = smoothSampler;
-		ambientImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		ambientImageBufferInfos[i].imageView = _loadedTextures[pSceneModel->_matNames[i]][AMBIENT_TEX_SLOT].imageView;
-	}
+	fill_tex_descriptor_sets(ambientImageBufferInfos, pSceneModel->_ambientTexNames, pSceneModel, AMBIENT_TEX_SLOT);
 
 	// fill specular descriptor set
 
 	std::vector<vk::DescriptorImageInfo> specularImageBufferInfos;
-	specularImageBufferInfos.resize(pSceneModel->_specularTexNames.size());
+	fill_tex_descriptor_sets(specularImageBufferInfos, pSceneModel->_specularTexNames, pSceneModel, SPECULAR_TEX_SLOT);
 
-	for (size_t i = 0; i < pSceneModel->_specularTexNames.size(); ++i)
-	{
-		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[pSceneModel->_matNames[i]][SPECULAR_TEX_SLOT].image._mipLevels, VK_LOD_CLAMP_NONE);
+	// fill cubemap descriptor set
 
-		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
+	vk::DescriptorImageInfo skyboxDescImage;
+	vk::SamplerCreateInfo skyboxSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear);
+	vk::Sampler skyboxSampler = _device.createSampler(skyboxSamplerInfo);
 
-		_mainDeletionQueue.push_function([=]() {
-			_device.destroySampler(smoothSampler);
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroySampler(skyboxSampler);
 		});
 
-		specularImageBufferInfos[i].sampler = smoothSampler;
-		specularImageBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		specularImageBufferInfos[i].imageView = _loadedTextures[pSceneModel->_matNames[i]][SPECULAR_TEX_SLOT].imageView;
-	}
+	skyboxDescImage.sampler = skyboxSampler;
+	skyboxDescImage.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	skyboxDescImage.imageView = _skybox.imageView;
 
 	// write to descriptor sets
 
@@ -1040,6 +1122,13 @@ void VulkanEngine::init_scene()
 		texturedMatSet->specularTextureSet, specularImageBufferInfos.data(), 0, specularImageBufferInfos.size());
 	
 	_device.updateDescriptorSets(textureSetWrites, {});
+
+	vk::WriteDescriptorSet skyboxSetWrite;
+
+	skyboxSetWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+		skyboxMatSet->skyboxSet, &skyboxDescImage, 0);
+
+	_device.updateDescriptorSets(skyboxSetWrite, {});
 }
 
 void VulkanEngine::upload_mesh(Mesh& mesh)
@@ -1183,12 +1272,12 @@ void VulkanEngine::draw()
 	VK_CHECK( vkResetCommandBuffer(get_current_frame()._mainCommandBuffer, 0) );
 
 	vk::CommandBuffer cmd = get_current_frame()._mainCommandBuffer;
-	
+
 	// begin recording the command buffer, letting Vulkan know that we will submit cmd exactly once per frame
 	vk::CommandBufferBeginInfo cmdBeginInfo = {};
 	cmdBeginInfo.pInheritanceInfo = nullptr; // no secondary command buffers
 	cmdBeginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-	
+
 	cmd.begin(cmdBeginInfo);
 
 	// make clear color dependent on frame number
@@ -1335,7 +1424,8 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), _windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), 
+		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
 	GPUCameraData camData;
@@ -1421,6 +1511,13 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
 					2 + SPECULAR_TEX_SLOT, object.materialSet->specularTextureSet, {});
 			}
+
+			// skybox texture descriptor
+			if (object.materialSet->skyboxSet)
+			{
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
+					2, object.materialSet->skyboxSet, {});
+			}
 		}
 
 		glm::mat4 model = object.transformMatrix;
@@ -1432,10 +1529,12 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 		constants.num_materials = object.model->_matNames.size();
 
 		// upload to GPU
-
-		cmd.pushConstants(object.materialSet->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
-			sizeof(MeshPushConstants), &constants);
-
+		if (!object.materialSet->skyboxSet)
+		{
+			cmd.pushConstants(object.materialSet->pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
+				sizeof(MeshPushConstants), &constants);
+		}
+		
 		if (object.model != lastModel)
 		{
 			vk::DeviceSize offset = 0;

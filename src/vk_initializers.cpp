@@ -195,7 +195,9 @@ vk::PipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
 	return info;
 }
 
-vk::ImageCreateInfo vkinit::image_create_info(vk::Format format, vk::ImageUsageFlags usageFlags, vk::Extent3D extent, uint32_t mipLevels, vk::SampleCountFlagBits numSamples /* = VK_SAMPLE_COUNT_1_BIT */)
+vk::ImageCreateInfo vkinit::image_create_info(vk::Format format, vk::ImageUsageFlags usageFlags, vk::Extent3D extent,
+	uint32_t mipLevels, vk::SampleCountFlagBits numSamples /* = VK_SAMPLE_COUNT_1_BIT */,
+	ImageType type /* = ImageType::eTexture */)
 {
 	vk::ImageCreateInfo info = {};
 
@@ -205,25 +207,41 @@ vk::ImageCreateInfo vkinit::image_create_info(vk::Format format, vk::ImageUsageF
 	info.extent = extent;
 	
 	info.mipLevels = mipLevels;
-	info.arrayLayers = 1;
+	info.arrayLayers = (type == ImageType::eCubemap) ? 6 : 1;
 	info.samples = numSamples;
 	info.tiling = vk::ImageTiling::eOptimal;
 	info.usage = usageFlags;
+	info.flags = (type == ImageType::eCubemap) ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlagBits(0);
 
 	return info;
 }
 
-vk::ImageViewCreateInfo vkinit::image_view_create_info(vk::Format format, vk::Image image, vk::ImageAspectFlags aspectFlags, uint32_t mipLevels)
+vk::ImageViewCreateInfo vkinit::image_view_create_info(vk::Format format, vk::Image image,
+	vk::ImageAspectFlags aspectFlags, uint32_t mipLevels, ImageType type/* = ImageType::eTexture */)
 {
+	vk::ImageViewType viewType = {};
+
+	switch (type)
+	{
+	case ImageType::eTexture:
+		viewType = vk::ImageViewType::e2D;
+		break;
+	case ImageType::eCubemap:
+		viewType = vk::ImageViewType::eCube;
+		break;
+	default:
+		break;
+	}
+
 	vk::ImageViewCreateInfo info = {};
 
-	info.viewType = vk::ImageViewType::e2D;
+	info.viewType = viewType;
 	info.image = image;
 	info.format = format;
 	info.subresourceRange.baseMipLevel = 0;
 	info.subresourceRange.levelCount = mipLevels;
 	info.subresourceRange.baseArrayLayer = 0;
-	info.subresourceRange.layerCount = 1;
+	info.subresourceRange.layerCount = (type == ImageType::eCubemap) ? 6 : 1;
 	info.subresourceRange.aspectMask = aspectFlags;
 	
 	return info;

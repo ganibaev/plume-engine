@@ -6,7 +6,7 @@
 namespace vkinit {
 
 	vk::CommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, vk::CommandPoolCreateFlags flags = {});
-	vk::CommandBufferAllocateInfo command_buffer_allocate_info(vk::CommandPool pool, uint32_t count = 1, 
+	vk::CommandBufferAllocateInfo command_buffer_allocate_info(vk::CommandPool pool, uint32_t count = 1,
 		vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary);
 	
 	vk::CommandBufferBeginInfo command_buffer_begin_info(vk::CommandBufferUsageFlags flags = {});
@@ -20,7 +20,7 @@ namespace vkinit {
 	vk::PipelineShaderStageCreateInfo pipeline_shader_stage_create_info(vk::ShaderStageFlagBits stage, vk::ShaderModule shaderModule);
 	vk::PipelineVertexInputStateCreateInfo vertex_input_state_create_info();
 	vk::PipelineInputAssemblyStateCreateInfo input_assembly_create_info(vk::PrimitiveTopology topology);
-	vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info(vk::PolygonMode polygonMode, 
+	vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info(vk::PolygonMode polygonMode,
 		vk::CullModeFlags cullMode = vk::CullModeFlagBits::eNone);
 	vk::PipelineMultisampleStateCreateInfo multisampling_state_create_info(vk::SampleCountFlagBits numSamples);
 	vk::PipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, vk::CompareOp compareOp);
@@ -31,9 +31,11 @@ namespace vkinit {
 	vk::PipelineLayoutCreateInfo pipeline_layout_create_info();
 
 	vk::ImageCreateInfo image_create_info(vk::Format format, vk::ImageUsageFlags usageFlags, vk::Extent3D extent,
-		uint32_t mipLevels, vk::SampleCountFlagBits numSamples = vk::SampleCountFlagBits::e1);
-	vk::ImageViewCreateInfo image_view_create_info(vk::Format format, vk::Image image, vk::ImageAspectFlags aspectFlags, 
-		uint32_t mipLevels);
+		uint32_t mipLevels, vk::SampleCountFlagBits numSamples = vk::SampleCountFlagBits::e1,
+		ImageType type = ImageType::eTexture);
+
+	vk::ImageViewCreateInfo image_view_create_info(vk::Format format, vk::Image image, vk::ImageAspectFlags aspectFlags,
+		uint32_t mipLevels, ImageType type = ImageType::eTexture);
 	
 	vk::DescriptorSetLayoutBinding descriptor_set_layout_binding(vk::DescriptorType type,
 		vk::ShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount = 1);

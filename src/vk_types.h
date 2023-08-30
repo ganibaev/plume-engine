@@ -10,9 +10,15 @@ struct AllocatedBuffer
 	VmaAllocation _allocation;
 };
 
+enum class ImageType
+{
+	eTexture = 0,
+	eCubemap = 1
+};
+
 struct AllocatedImage
 {
-	uint32_t _mipLevels;
+	uint32_t _mipLevels = 1;
 	vk::Image _image;
 	VmaAllocation _allocation;
 };

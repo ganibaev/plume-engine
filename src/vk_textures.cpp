@@ -6,7 +6,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage)
+bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage, bool generateMipmaps)
 {
 	int texWidth, texHeight, texChannels;
 
@@ -99,7 +99,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 
 		vk::FormatProperties formatProperties = engine->_chosenGPU.getFormatProperties(imageFormat);
 		
-		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear))
+		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear) || !generateMipmaps)
 		{
 			std::cout << "Texture image format does not support linear blitting! Falling back to 1 mipmap level";
 			outImage._mipLevels = 1;
@@ -128,6 +128,167 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	vmaDestroyBuffer(engine->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 
 	std::cout << "Texture from " << file << " loaded successfully" << std::endl;
+
+	outImage = newImage;
+	return true;
+}
+
+bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std::string>& files,
+	AllocatedImage& outImage)
+{
+	vk::DeviceSize imageSize = 0;
+
+	uint8_t* pCurPixel = nullptr;
+
+	const std::string& first = files.front();
+
+	int texWidth, texHeight, texChannels;
+	stbi_uc* pixels = stbi_load(first.data(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+	if (!pixels)
+	{
+		std::cout << "Failed to load texture file " << first << std::endl;
+		return false;
+	}
+
+	vk::DeviceSize subimageSize = static_cast<uint64_t>(texWidth) * texHeight * 4;
+
+	pCurPixel = pixels;
+
+	imageSize += subimageSize;
+
+	std::vector<uint8_t> images(subimageSize * 6);
+
+	// copy first image into the vector
+	std::memcpy(images.data(), pCurPixel, subimageSize);
+
+	for (size_t i = 1; i < files.size(); ++i)
+	{
+		pixels = stbi_load(files[i].data(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+		if (!pixels)
+		{
+			std::cout << "Failed to load texture file " << files[i] << std::endl;
+			return false;
+		}
+
+		pCurPixel = pixels;
+
+		subimageSize = static_cast<uint64_t>(texWidth) * texHeight * 4;
+		
+		// fill the rest of the vector
+		std::memcpy(&images[imageSize], pCurPixel, subimageSize);
+
+		imageSize += subimageSize;
+	}
+	
+	// reset pointer to front of the vector
+	void* pPixel = images.data();
+
+	// matching format
+	vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
+
+	// hold texture data
+	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+		VMA_MEMORY_USAGE_CPU_ONLY);
+
+	// copy data to buffer
+	void* data;
+	vmaMapMemory(engine->_allocator, stagingBuffer._allocation, &data);
+
+	std::memcpy(data, pPixel, static_cast<size_t>(imageSize));
+
+	vmaUnmapMemory(engine->_allocator, stagingBuffer._allocation);
+
+	stbi_image_free(pixels);
+
+	vk::Extent3D imageExtent;
+	imageExtent.width = static_cast<uint32_t>(texWidth);
+	imageExtent.height = static_cast<uint32_t>(texHeight);
+	imageExtent.depth = 1;
+
+	vk::ImageCreateInfo imageInfo = vkinit::image_create_info(imageFormat, vk::ImageUsageFlagBits::eSampled |
+		vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, imageExtent, outImage._mipLevels,
+		vk::SampleCountFlagBits::e1, ImageType::eCubemap);
+
+	AllocatedImage newImage;
+
+	newImage._mipLevels = outImage._mipLevels;
+
+	VmaAllocationCreateInfo imgAllocInfo = {};
+	imgAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	VkImageCreateInfo imageInfoC = static_cast<VkImageCreateInfo>(imageInfo);
+	VkImage imageC = {};
+
+	vmaCreateImage(engine->_allocator, &imageInfoC, &imgAllocInfo, &imageC, &newImage._allocation, nullptr);
+
+	newImage._image = imageC;
+
+	engine->immediate_submit([&](vk::CommandBuffer cmd) {
+		vk::ImageSubresourceRange range;
+		range.aspectMask = vk::ImageAspectFlagBits::eColor;
+		range.baseMipLevel = 0;
+		range.levelCount = outImage._mipLevels;
+		range.baseArrayLayer = 0;
+		range.layerCount = 6;
+
+		vk::ImageMemoryBarrier imageBarrierToTransfer = {};
+
+		imageBarrierToTransfer.oldLayout = vk::ImageLayout::eUndefined;
+		imageBarrierToTransfer.newLayout = vk::ImageLayout::eTransferDstOptimal;
+		imageBarrierToTransfer.image = newImage._image;
+		imageBarrierToTransfer.subresourceRange = range;
+
+		imageBarrierToTransfer.srcAccessMask = vk::AccessFlagBits::eNone;
+		imageBarrierToTransfer.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+
+		// use barrier to prepare for writing image
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTransfer, {}, nullptr, nullptr, imageBarrierToTransfer);
+		
+		std::vector<vk::BufferImageCopy> bufferCopyRegions;
+
+		size_t face = 0;
+		for (size_t offset = 0; offset < images.size(); offset += subimageSize)
+		{
+			vk::BufferImageCopy copyRegion = {};
+			copyRegion.bufferOffset = offset;
+			copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+			copyRegion.imageSubresource.mipLevel = 0;
+			copyRegion.imageSubresource.baseArrayLayer = face;
+			copyRegion.imageSubresource.layerCount = 1;
+			copyRegion.imageExtent = imageExtent;
+			bufferCopyRegions.push_back(copyRegion);
+			
+			++face;
+		}
+		
+		// copy the buffer
+		cmd.copyBufferToImage(stagingBuffer._buffer, newImage._image, vk::ImageLayout::eTransferDstOptimal, bufferCopyRegions);
+
+		vk::FormatProperties formatProperties = engine->_chosenGPU.getFormatProperties(imageFormat);
+
+		outImage._mipLevels = 1;
+		// change layout to shader read optimal
+		vk::ImageMemoryBarrier imageBarrierToReadable = imageBarrierToTransfer;
+
+		imageBarrierToReadable.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+		imageBarrierToReadable.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+		imageBarrierToReadable.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+		imageBarrierToReadable.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr, nullptr, imageBarrierToReadable);
+
+	});
+
+	engine->_mainDeletionQueue.push_function([=]() {
+		vmaDestroyImage(engine->_allocator, newImage._image, newImage._allocation);
+		});
+
+	vmaDestroyBuffer(engine->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+
+	std::cout << "Cubemap texture loaded successfully" << std::endl;
 
 	outImage = newImage;
 	return true;
