@@ -1,17 +1,16 @@
 # Plume Engine
 
-![plume-v0 8](https://github.com/ganibaev/plume-engine/assets/55918604/8efe06d8-c001-4f2f-aeb7-d3588c0b3f81)
+![plume-v0 9](https://github.com/ganibaev/plume-engine/assets/55918604/76ef3dfc-b93e-403a-b793-8db3d60d5a79)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it supports Blinn-Phong lighting, lighting maps, MSAA, fairly complex scene rendering and texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
+Currently it supports Blinn-Phong lighting, lighting maps, normal maps, MSAA, fairly complex scene rendering and texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
 
 The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the central light source in world space with arrow keys (RShift to move up and RCtrl to move down).
 
 ## Work in progress (loosely arranged in order of priority)
 
 * Shadows
-* Normal & bump maps
 * Deferred shading
 * PBR
 * Basic raytracing
