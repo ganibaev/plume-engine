@@ -4,12 +4,14 @@
 #define DIFFUSE_TEX_SLOT 0U
 #define AMBIENT_TEX_SLOT 1U
 #define SPECULAR_TEX_SLOT 2U
+#define NORMAL_MAP_SLOT 3U
 
 layout (location = 0) in vec3 inColor;
 layout (location = 1) in vec2 texCoord;
 layout (location = 2) flat in uint matID;
 layout (location = 3) in vec3 fragPosWorld;
 layout (location = 4) in vec3 fragNormalWorld;
+layout (location = 5) in vec3 fragTangent;
 
 layout (location = 0) out vec4 outFragColor;
 
@@ -59,6 +61,7 @@ layout (set = 0, binding = 0) uniform CameraBuffer
 layout (set = 2 + DIFFUSE_TEX_SLOT, binding = 0) uniform sampler2D diffuseTex[];
 layout (set = 2 + AMBIENT_TEX_SLOT, binding = 0) uniform sampler2D ambientTex[];
 layout (set = 2 + SPECULAR_TEX_SLOT, binding = 0) uniform sampler2D specularTex[];
+layout (set = 2 + NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
 
 void main()
 {
@@ -67,8 +70,24 @@ void main()
 	vec4 diffuseMaterial = texture(diffuseTex[matID], texCoord);
 	vec4 ambientMaterial = texture(ambientTex[matID], texCoord);
 	vec4 specularMaterial = texture(specularTex[matID], texCoord);
+	vec4 normalTex = texture(normalMap[matID], texCoord);
+
+	vec3 biTangent = cross(fragNormalWorld, normalize(fragTangent));
+
+	vec3 T = normalize(fragTangent);
+	vec3 B = cross(fragNormalWorld, fragTangent);
+	vec3 N = normalize(fragNormalWorld);
+
+	mat3 TBN = mat3(T, B, N);
 
 	vec3 surfaceNormal = normalize(fragNormalWorld);
+	vec3 mappedNormal = TBN * normalize(normalTex.xyz * 2.0 - vec3(1.0));
+	
+	if (normalTex.w > 0.2)
+	{
+		surfaceNormal = mappedNormal;
+	}
+
 	vec3 camPosWorld = camSceneData.camData.invView[3].xyz;
 	vec3 viewDirection = normalize(camPosWorld - fragPosWorld);
 

@@ -5,12 +5,14 @@ layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec3 vColor;
 layout (location = 3) in vec2 vTexCoord;
 layout (location = 4) in uint vMatID;
+layout (location = 5) in vec3 vTangent;
 
 layout (location = 0) out vec3 outColor;
 layout (location = 1) out vec2 texCoord;
 layout (location = 2) flat out uint matID;
 layout (location = 3) out vec3 fragPosWorld;
 layout (location = 4) out vec3 fragNormalWorld;
+layout (location = 5) out vec3 fragTangent;
 
 struct CameraData
 {
@@ -57,4 +59,5 @@ void main()
 	outColor = vColor;
 	texCoord = vTexCoord;
 	matID = vMatID;
+	fragTangent = vTangent;
 }

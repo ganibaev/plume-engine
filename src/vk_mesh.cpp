@@ -49,19 +49,30 @@ VertexInputDescription Vertex::get_vertex_description()
 	materialIDAttribute.location = 4;
 	materialIDAttribute.format = vk::Format::eR32Uint;
 	materialIDAttribute.offset = offsetof(Vertex, materialID);
+
+	// tangents at location 5
+	vk::VertexInputAttributeDescription tangentAttribute = {};
+	tangentAttribute.binding = 0;
+	tangentAttribute.location = 5;
+	tangentAttribute.format = vk::Format::eR32G32B32Sfloat;
+	tangentAttribute.offset = offsetof(Vertex, tangent);
 	
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);
 	description.attributes.push_back(uvAttribute);
 	description.attributes.push_back(materialIDAttribute);
+	description.attributes.push_back(tangentAttribute);
 	return description;
 }
 
 bool Model::load_assimp(std::string filePath)
 {
+	Scene& parentScene = *_parentScene;
+
 	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(filePath, aiProcess_Triangulate | aiProcess_FlipUVs);
+	const aiScene* scene = importer.ReadFile(filePath, aiProcess_Triangulate | aiProcess_FlipUVs
+		| aiProcess_CalcTangentSpace);
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
@@ -72,7 +83,9 @@ bool Model::load_assimp(std::string filePath)
 	size_t dirPosWin = filePath.find_last_of('\\');
 	size_t dirPosUnix = filePath.find_last_of('/');
 
-	_directory = filePath.substr(0, dirPosUnix == std::string::npos ? dirPosWin : dirPosUnix) + '/';
+	parentScene._directory = filePath.substr(0, dirPosUnix == std::string::npos ? dirPosWin : dirPosUnix) + '/';
+
+	parentScene._matOffset = parentScene._diffuseTexNames.size();
 
 	for (size_t i = 0; i < scene->mNumMaterials; ++i)
 	{
@@ -81,15 +94,16 @@ bool Model::load_assimp(std::string filePath)
 		std::string matName = material->GetName().C_Str();
 		std::string diffTexName = "";
 
-		load_texture_names(material, aiTextureType_DIFFUSE, _diffuseTexNames, &diffTexName);
-		load_texture_names(material, aiTextureType_AMBIENT, _ambientTexNames);
-		load_texture_names(material, aiTextureType_SPECULAR, _specularTexNames);
+		load_texture_names(material, aiTextureType_DIFFUSE, parentScene._diffuseTexNames, &diffTexName);
+		load_texture_names(material, aiTextureType_AMBIENT, parentScene._ambientTexNames);
+		load_texture_names(material, aiTextureType_SPECULAR, parentScene._specularTexNames);
+		load_texture_names(material, aiTextureType_NORMALS, parentScene._normalMapNames);
 
 		if (matName.empty())
 		{
 			matName = diffTexName;
 		}
-		_matNames.push_back(matName);
+		parentScene._matNames.push_back(matName);
 	}
 
 	process_node(scene->mRootNode, *scene);
@@ -113,7 +127,7 @@ void Model::process_node(aiNode* node, const aiScene& scene)
 void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 {
 	Mesh newMesh = {};
-	
+
 	aiMaterial* material = nullptr;
 
 	if (mesh->mMaterialIndex >= 0)
@@ -133,6 +147,11 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 		newVertex.normal.y = mesh->mNormals[i].y;
 		newVertex.normal.z = mesh->mNormals[i].z;
 
+		newVertex.tangent.x = mesh->mTangents[i].x;
+		newVertex.tangent.y = mesh->mTangents[i].y;
+		newVertex.tangent.z = mesh->mTangents[i].z;
+		newVertex.tangent.w = 0.0f;
+
 		if (mesh->mTextureCoords[0])
 		{
 			newVertex.uv.x = mesh->mTextureCoords[0][i].x;
@@ -145,7 +164,7 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 
 		if (material)
 		{
-			newVertex.materialID = mesh->mMaterialIndex;
+			newVertex.materialID = _parentScene->_matOffset + mesh->mMaterialIndex;
 		}
 		newVertex.color = newVertex.normal;
 
@@ -177,7 +196,7 @@ void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<
 		aiString name;
 		if (mat->GetTexture(type, i, &name) != aiReturn_FAILURE)
 		{
-			names.push_back(_directory + name.C_Str());
+			names.push_back(_parentScene->_directory + name.C_Str());
 			if (curName)
 			{
 				*curName = name.C_Str();
@@ -192,6 +211,8 @@ void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<
 
 bool Model::load_from_obj(std::string filePath)
 {
+	Scene& parentScene = *_parentScene;
+
 	std::string matBaseDir = "../../../assets/";
 
 	tinyobj::attrib_t vertexAttributes;
@@ -214,28 +235,29 @@ bool Model::load_from_obj(std::string filePath)
 		return false;
 	}
 
-	_diffuseTexNames.resize(materials.size());
-	_ambientTexNames.resize(materials.size());
-	_specularTexNames.resize(materials.size());
-	_matNames.resize(materials.size());
+	parentScene._diffuseTexNames.resize(materials.size());
+	parentScene._ambientTexNames.resize(materials.size());
+	parentScene._specularTexNames.resize(materials.size());
+	size_t matNamesBaseSize = parentScene._matNames.size();
+	parentScene._matNames.resize(matNamesBaseSize + materials.size());
 
-	for (size_t m = 0; m < materials.size(); ++m)
+	for (size_t m = 0; m < matNamesBaseSize + materials.size(); ++m)
 	{
-		_matNames[m] = materials[m].name;
+		parentScene._matNames[m] = materials[m].name;
 
 		if (!materials[m].diffuse_texname.empty())
 		{
-			_diffuseTexNames[m] = matBaseDir + materials[m].diffuse_texname;
+			parentScene._diffuseTexNames[m] = matBaseDir + materials[m].diffuse_texname;
 		}
 
 		if (!materials[m].ambient_texname.empty())
 		{
-			_ambientTexNames[m] = matBaseDir + materials[m].ambient_texname;
+			parentScene._ambientTexNames[m] = matBaseDir + materials[m].ambient_texname;
 		}
 
 		if (!materials[m].specular_texname.empty())
 		{
-			_specularTexNames[m] = matBaseDir + materials[m].specular_texname;
+			parentScene._specularTexNames[m] = matBaseDir + materials[m].specular_texname;
 		}
 	}
 

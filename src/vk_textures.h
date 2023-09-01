@@ -5,7 +5,8 @@
 
 namespace vkutil
 {
-	bool load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage, bool generateMipmaps = true);
+	bool load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage,
+		bool generateMipmaps = true, vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb);
 
 	bool load_cubemap_from_files(VulkanEngine* engine, const std::vector<std::string>& files, AllocatedImage& outImage);
 	

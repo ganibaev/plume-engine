@@ -15,7 +15,12 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
-constexpr int NUM_TEXTURE_TYPES = 3;
+constexpr int NUM_TEXTURE_TYPES = 4;
+
+constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
+constexpr uint32_t AMBIENT_TEX_SLOT = 1;
+constexpr uint32_t SPECULAR_TEX_SLOT = 2;
+constexpr uint32_t NORMAL_MAP_SLOT = 3;
 
 class PipelineBuilder {
 public:
@@ -38,6 +43,7 @@ struct MaterialSet
 	vk::DescriptorSet diffuseTextureSet;
 	vk::DescriptorSet ambientTextureSet;
 	vk::DescriptorSet specularTextureSet;
+	vk::DescriptorSet normalMapSet;
 	vk::DescriptorSet skyboxSet;
 	vk::Pipeline pipeline;
 	vk::PipelineLayout pipelineLayout;
@@ -188,6 +194,8 @@ public:
 
 	vk::SampleCountFlagBits _msaaSamples = vk::SampleCountFlagBits::e8;
 	
+	Scene _scene;
+
 	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
@@ -241,7 +249,6 @@ public:
 	
 	std::vector<RenderObject> _renderables;
 
-	std::unordered_map<std::string, Model> _models;
 	std::unordered_map<std::string, MaterialSet> _materialSets;
 
 	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
@@ -280,7 +287,8 @@ private:
 
 	void load_meshes();
 
-	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName, uint32_t texSlot);
+	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
+		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);
 
 	void load_skybox(Texture& skybox, const std::string& directory);
 

@@ -16,7 +16,7 @@
 #include <glm/gtx/transform.hpp>
 
 constexpr static bool ENABLE_VALIDATION_LAYERS = true;
-constexpr static float DRAW_DISTANCE = 2000.0f;
+constexpr static float DRAW_DISTANCE = 3200.0f;
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -32,10 +32,6 @@ constexpr static float DRAW_DISTANCE = 2000.0f;
 		}																		\
 	} while (0)
 
-constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
-constexpr uint32_t AMBIENT_TEX_SLOT = 1;
-constexpr uint32_t SPECULAR_TEX_SLOT = 2;
-constexpr uint32_t SKYBOX_TEX_SLOT = 3;
 
 void VulkanEngine::init()
 {
@@ -510,7 +506,7 @@ void VulkanEngine::init_descriptors()
 	Model* scene = get_model("scene");
 
 	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0, scene->_diffuseTexNames.size());
+		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0, _scene._diffuseTexNames.size());
 
 	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
 
@@ -620,7 +616,7 @@ void VulkanEngine::init_pipelines()
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
 
 	vk::DescriptorSetLayout texSetLayouts[] = {
-		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout
+		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout
 	};
 
 	texturedPipelineLayoutInfo.setSetLayouts(texSetLayouts);
@@ -817,7 +813,7 @@ void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&&
 void VulkanEngine::load_meshes()
 {
 	Model suzanneModel;
-
+	suzanneModel._parentScene = &_scene;
 	suzanneModel.load_assimp("../../../assets/suzanne/Suzanne.gltf");
 
 	for (Mesh& mesh : suzanneModel._meshes)
@@ -825,9 +821,10 @@ void VulkanEngine::load_meshes()
 		upload_mesh(mesh);
 	}
 
-	_models["suzanne"] = suzanneModel;
+	_scene._models["suzanne"] = suzanneModel;
 
 	Model scene;
+	scene._parentScene = &_scene;
 	scene.load_assimp("../../../assets/sponza/Sponza.gltf");
 
 	for (Mesh& mesh : scene._meshes)
@@ -835,9 +832,10 @@ void VulkanEngine::load_meshes()
 		upload_mesh(mesh);
 	}
 
-	_models["scene"] = scene;
+	_scene._models["scene"] = scene;
 
 	Model cube;
+	cube._parentScene = &_scene;
 	cube.load_assimp("../../../assets/cube.gltf");
 
 	for (Mesh& mesh : cube._meshes)
@@ -845,15 +843,15 @@ void VulkanEngine::load_meshes()
 		upload_mesh(mesh);
 	}
 
-	_models["cube"] = cube;
+	_scene._models["cube"] = cube;
 }
 
-void VulkanEngine::load_material_texture(Texture& tex, const std::string& texName,
-	const std::string& matName, uint32_t texSlot)
+void VulkanEngine::load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
+	uint32_t texSlot, bool generateMipmaps/* = true */, vk::Format format/* = vk::Format::eR8G8B8A8Srgb */)
 {
-	vkutil::load_image_from_file(this, texName.data(), tex.image);
+	vkutil::load_image_from_file(this, texName.data(), tex.image, generateMipmaps, format);
 
-	vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
+	vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(format,
 		tex.image._image, vk::ImageAspectFlagBits::eColor, tex.image._mipLevels);
 	tex.imageView = _device.createImageView(imageViewInfo);
 
@@ -882,16 +880,16 @@ void VulkanEngine::load_skybox(Texture& skybox, const std::string& directory)
 
 void VulkanEngine::load_images()
 {
-	Model* scene = get_model("scene");
+	Model* curModel = get_model("scene");
 
-	for (size_t i = 0; i < scene->_diffuseTexNames.size(); ++i)
+	for (size_t i = 0; i < _scene._diffuseTexNames.size(); ++i)
 	{
 		Texture diffuse = {};
 		Texture defaultTex = {};
 
-		if (!scene->_diffuseTexNames[i].empty())
+		if (!_scene._diffuseTexNames[i].empty())
 		{
-			load_material_texture(diffuse, scene->_diffuseTexNames[i], scene->_matNames[i], DIFFUSE_TEX_SLOT);
+			load_material_texture(diffuse, _scene._diffuseTexNames[i], _scene._matNames[i], DIFFUSE_TEX_SLOT);
 		}
 		else
 		{
@@ -901,7 +899,7 @@ void VulkanEngine::load_images()
 				defaultTex.image._image, vk::ImageAspectFlagBits::eColor, defaultTex.image._mipLevels);
 			defaultTex.imageView = _device.createImageView(imageViewInfo);
 
-			_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
+			_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
 
 			_mainDeletionQueue.push_function([=]() {
 				_device.destroyImageView(defaultTex.imageView);
@@ -909,33 +907,60 @@ void VulkanEngine::load_images()
 		}
 	}
 
-	for (size_t i = 0; i < scene->_ambientTexNames.size(); ++i)
+	for (size_t i = 0; i < _scene._ambientTexNames.size(); ++i)
 	{
 		Texture ambient = {};
 
-		if (!scene->_ambientTexNames[i].empty())
+		if (!_scene._ambientTexNames[i].empty())
 		{
-			load_material_texture(ambient, scene->_ambientTexNames[i], scene->_matNames[i], AMBIENT_TEX_SLOT);
+			load_material_texture(ambient, _scene._ambientTexNames[i], _scene._matNames[i], AMBIENT_TEX_SLOT);
 		}
 		else
 		{
-			_loadedTextures[scene->_matNames[i]][AMBIENT_TEX_SLOT] =
-				_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT];
+			_loadedTextures[_scene._matNames[i]][AMBIENT_TEX_SLOT] =
+				_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT];
 		}
 	}
 
-	for (size_t i = 0; i < scene->_specularTexNames.size(); ++i)
+	for (size_t i = 0; i < _scene._specularTexNames.size(); ++i)
 	{
 		Texture specular = {};
 
-		if (!scene->_specularTexNames[i].empty())
+		if (!_scene._specularTexNames[i].empty())
 		{
-			load_material_texture(specular, scene->_specularTexNames[i], scene->_matNames[i], SPECULAR_TEX_SLOT);
+			load_material_texture(specular, _scene._specularTexNames[i], _scene._matNames[i], SPECULAR_TEX_SLOT);
 		}
 		else
 		{
-			_loadedTextures[scene->_matNames[i]][SPECULAR_TEX_SLOT] =
-				_loadedTextures[scene->_matNames[i]][DIFFUSE_TEX_SLOT];
+			_loadedTextures[_scene._matNames[i]][SPECULAR_TEX_SLOT] =
+				_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT];
+		}
+	}
+
+	for (size_t i = 0; i < _scene._normalMapNames.size(); ++i)
+	{
+		Texture normalMap = {};
+		Texture defaultNormal = {};
+
+		if (!_scene._normalMapNames[i].empty())
+		{
+			load_material_texture(normalMap, _scene._normalMapNames[i], _scene._matNames[i], NORMAL_MAP_SLOT,
+				true, vk::Format::eR32G32B32A32Sfloat);
+		}
+		else
+		{
+			vkutil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal.image, true,
+				vk::Format::eR32G32B32A32Sfloat);
+
+			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR32G32B32A32Sfloat,
+				defaultNormal.image._image, vk::ImageAspectFlagBits::eColor, defaultNormal.image._mipLevels);
+			defaultNormal.imageView = _device.createImageView(imageViewInfo);
+
+			_loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT] = defaultNormal;
+
+			_mainDeletionQueue.push_function([=]() {
+				_device.destroyImageView(defaultNormal.imageView);
+			});
 		}
 	}
 
@@ -958,7 +983,7 @@ void VulkanEngine::fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>
 	for (size_t i = 0; i < texNames.size(); ++i)
 	{
 		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[model->_matNames[i]][texSlot].image._mipLevels, VK_LOD_CLAMP_NONE);
+			_loadedTextures[_scene._matNames[i]][texSlot].image._mipLevels, VK_LOD_CLAMP_NONE);
 
 		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
 
@@ -968,7 +993,7 @@ void VulkanEngine::fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>
 
 		texBufferInfos[i].sampler = smoothSampler;
 		texBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		texBufferInfos[i].imageView = _loadedTextures[model->_matNames[i]][texSlot].imageView;
+		texBufferInfos[i].imageView = _loadedTextures[_scene._matNames[i]][texSlot].imageView;
 	}
 }
 
@@ -976,7 +1001,7 @@ void VulkanEngine::init_scene()
 {
 	RenderObject suzanne = {};
 	suzanne.model = get_model("suzanne");
-	suzanne.materialSet = get_material_set("defaultmesh");
+	suzanne.materialSet = get_material_set("texturedmesh");
 	suzanne.mesh = &(suzanne.model->_meshes.front());
 	//glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(5.0f, 5.0f, 5.0f));
 	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
@@ -984,17 +1009,6 @@ void VulkanEngine::init_scene()
 	suzanne.transformMatrix = meshTranslate;
 
 	_renderables.push_back(suzanne);
-
-	RenderObject cube = {};
-	cube.model = get_model("cube");
-	cube.materialSet = get_material_set("skybox");
-	cube.mesh = &(cube.model->_meshes.front());
-	glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(150.0f, 150.0f, 150.0f));
-	//glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
-	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-	cube.transformMatrix = meshScale;
-	
-	_renderables.push_back(cube);
 
 	Model* pSceneModel = get_model("scene");
 	if (!pSceneModel)
@@ -1019,6 +1033,17 @@ void VulkanEngine::init_scene()
 		_renderables.push_back(std::move(renderSceneMesh));
 	}
 
+	RenderObject cube = {};
+	cube.model = get_model("cube");
+	cube.materialSet = get_material_set("skybox");
+	cube.mesh = &(cube.model->_meshes.front());
+	glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(200.0f, 200.0f, 200.0f));
+	//glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
+	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	cube.transformMatrix = meshScale;
+
+	_renderables.push_back(cube);
+
 	// turning directional light off (w = 0.0) to better highlight point lights,
 	// but keeping the possibility to turn it on if needed
 	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(-14.0f, -3.0f, -1.0f)), 0.0f);
@@ -1027,7 +1052,7 @@ void VulkanEngine::init_scene()
 
 	PointLight centralLight = {};
 	centralLight.position = glm::vec4{ _centralLightPos, 0.0f };
-	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 200.0f };
+	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 300.0f };
 	_sceneParameters.pointLights[0] = centralLight;
 
 	PointLight leftLight = {};
@@ -1045,12 +1070,14 @@ void VulkanEngine::init_scene()
 	MaterialSet* texturedMatSet = get_material_set("texturedmesh");
 
 	std::array<uint32_t, NUM_TEXTURE_TYPES> textureVariableDescCounts = {
-		pSceneModel->_diffuseTexNames.size(),
-		pSceneModel->_ambientTexNames.size(),
-		pSceneModel->_specularTexNames.size()
+		_scene._diffuseTexNames.size(),
+		_scene._ambientTexNames.size(),
+		_scene._specularTexNames.size(),
+		_scene._normalMapNames.size(),
 	};
 
 	std::array<vk::DescriptorSetLayout, NUM_TEXTURE_TYPES> textureSetLayouts = {
+		_textureSetLayout,
 		_textureSetLayout,
 		_textureSetLayout,
 		_textureSetLayout
@@ -1071,6 +1098,7 @@ void VulkanEngine::init_scene()
 	texturedMatSet->diffuseTextureSet = texDescriptorSets[DIFFUSE_TEX_SLOT];
 	texturedMatSet->ambientTextureSet = texDescriptorSets[AMBIENT_TEX_SLOT];
 	texturedMatSet->specularTextureSet = texDescriptorSets[SPECULAR_TEX_SLOT];
+	texturedMatSet->normalMapSet = texDescriptorSets[NORMAL_MAP_SLOT];
 
 	vk::DescriptorSetAllocateInfo skyboxAllocInfo = {};
 	skyboxAllocInfo.setDescriptorPool(_descriptorPool);
@@ -1082,17 +1110,22 @@ void VulkanEngine::init_scene()
 	// fill diffuse descriptor set
 
 	std::vector<vk::DescriptorImageInfo> diffuseImageBufferInfos;
-	fill_tex_descriptor_sets(diffuseImageBufferInfos, pSceneModel->_diffuseTexNames, pSceneModel, DIFFUSE_TEX_SLOT);
+	fill_tex_descriptor_sets(diffuseImageBufferInfos, _scene._diffuseTexNames, pSceneModel, DIFFUSE_TEX_SLOT);
 
 	// fill ambient descriptor set
 
 	std::vector<vk::DescriptorImageInfo> ambientImageBufferInfos;
-	fill_tex_descriptor_sets(ambientImageBufferInfos, pSceneModel->_ambientTexNames, pSceneModel, AMBIENT_TEX_SLOT);
+	fill_tex_descriptor_sets(ambientImageBufferInfos, _scene._ambientTexNames, pSceneModel, AMBIENT_TEX_SLOT);
 
 	// fill specular descriptor set
 
 	std::vector<vk::DescriptorImageInfo> specularImageBufferInfos;
-	fill_tex_descriptor_sets(specularImageBufferInfos, pSceneModel->_specularTexNames, pSceneModel, SPECULAR_TEX_SLOT);
+	fill_tex_descriptor_sets(specularImageBufferInfos, _scene._specularTexNames, pSceneModel, SPECULAR_TEX_SLOT);
+
+	// fill normal map descriptor set
+
+	std::vector<vk::DescriptorImageInfo> normalMapImageBufferInfos;
+	fill_tex_descriptor_sets(normalMapImageBufferInfos, _scene._normalMapNames, pSceneModel, NORMAL_MAP_SLOT);
 
 	// fill cubemap descriptor set
 
@@ -1120,6 +1153,9 @@ void VulkanEngine::init_scene()
 
 	textureSetWrites[SPECULAR_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
 		texturedMatSet->specularTextureSet, specularImageBufferInfos.data(), 0, specularImageBufferInfos.size());
+
+	textureSetWrites[NORMAL_MAP_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+		texturedMatSet->normalMapSet, normalMapImageBufferInfos.data(), 0, normalMapImageBufferInfos.size());
 	
 	_device.updateDescriptorSets(textureSetWrites, {});
 
@@ -1409,8 +1445,8 @@ MaterialSet* VulkanEngine::get_material_set(const std::string& name)
 
 Model* VulkanEngine::get_model(const std::string& name)
 {
-	auto it = _models.find(name);
-	if (it == _models.end())
+	auto it = _scene._models.find(name);
+	if (it == _scene._models.end())
 	{
 		return nullptr;
 	}
@@ -1512,6 +1548,13 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 					2 + SPECULAR_TEX_SLOT, object.materialSet->specularTextureSet, {});
 			}
 
+			// normal map descriptor
+			if (object.materialSet->normalMapSet)
+			{
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
+					2 + NORMAL_MAP_SLOT, object.materialSet->normalMapSet, {});
+			}
+
 			// skybox texture descriptor
 			if (object.materialSet->skyboxSet)
 			{
@@ -1526,7 +1569,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 
 		MeshPushConstants constants;
 		constants.render_matrix = object.transformMatrix;
-		constants.num_materials = object.model->_matNames.size();
+		constants.num_materials = _scene._matNames.size();
 
 		// upload to GPU
 		if (!object.materialSet->skyboxSet)

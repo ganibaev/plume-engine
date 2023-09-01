@@ -2,9 +2,11 @@
 
 #include "vk_types.h"
 #include <vector>
+#include <glm/vec4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
 #include <string>
+#include <unordered_map>
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -25,6 +27,7 @@ struct Vertex
 	glm::vec3 color;
 	glm::vec2 uv;
 	glm::uint materialID;
+	glm::vec4 tangent;
 	static VertexInputDescription get_vertex_description();
 };
 
@@ -36,16 +39,13 @@ struct Mesh
 	AllocatedBuffer _indexBuffer;
 };
 
+struct Scene;
+
 struct Model
 {
+	Scene* _parentScene;
+
 	std::vector<Mesh> _meshes;
-
-	std::vector<std::string> _matNames;
-	std::vector<std::string> _ambientTexNames;
-	std::vector<std::string> _diffuseTexNames;
-	std::vector<std::string> _specularTexNames;
-
-	std::string _directory;
 
 	bool load_assimp(std::string filePath);
 	bool load_from_obj(std::string filePath);
@@ -54,4 +54,19 @@ struct Model
 	void process_mesh(aiMesh* mesh, const aiScene& scene);
 
 	void load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName = nullptr);
+};
+
+struct Scene
+{
+	size_t _matOffset = 0;
+
+	std::unordered_map<std::string, Model> _models;
+
+	std::vector<std::string> _matNames;
+	std::vector<std::string> _ambientTexNames;
+	std::vector<std::string> _diffuseTexNames;
+	std::vector<std::string> _specularTexNames;
+	std::vector<std::string> _normalMapNames;
+
+	std::string _directory;
 };

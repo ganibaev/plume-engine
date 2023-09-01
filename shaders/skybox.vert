@@ -5,6 +5,7 @@ layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec3 vColor;
 layout (location = 3) in vec2 vTexCoord;
 layout (location = 4) in uint vMatID;
+layout (location = 5) in vec3 vTangent;
 
 struct CameraData
 {
@@ -42,8 +43,4 @@ void main()
 	gl_Position = camSceneData.camData.viewproj * vPositionWorld;
 	
 	outUVW = vPosition;
-	outUVW.xy *= -1.0;
-
-	// skybox coordinates - converted to Vulkan coordinate space
-	// outUVW.xy *= -1.0;
 }

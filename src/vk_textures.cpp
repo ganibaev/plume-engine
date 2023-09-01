@@ -6,7 +6,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage, bool generateMipmaps)
+bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage,
+	bool generateMipmaps/* = true */, vk::Format imageFormat/* = vk::Format::eR8G8B8A8Srgb */)
 {
 	int texWidth, texHeight, texChannels;
 
@@ -19,23 +20,37 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	}
 
 	void* pixel_ptr = pixels;
-	vk::DeviceSize imageSize = texWidth * texHeight * 4;
+	
+	vk::DeviceSize imageSize = static_cast<uint64_t>(texWidth) * texHeight * 4;
 
-	outImage._mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+	outImage._mipLevels = generateMipmaps ? static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1 : 1;
 
-	// matching format
-	vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
+	std::vector<float> pixBuffer(imageSize);
+	for (size_t i = 0; i < imageSize; ++i)
+	{
+		pixBuffer[i] = pixels[i] / 255.0f;
+	}
+
+	switch (imageFormat)
+	{
+	case vk::Format::eR32G32B32A32Sfloat:
+		pixel_ptr = pixBuffer.data();
+		imageSize *= 4;
+		break;
+	default:
+		break;
+	}
 
 	// hold texture data
 	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
 		VMA_MEMORY_USAGE_CPU_ONLY);
-	
+
 	// copy data to buffer
 	void* data;
 	vmaMapMemory(engine->_allocator, stagingBuffer._allocation, &data);
 
 	memcpy(data, pixel_ptr, static_cast<size_t>(imageSize));
-
+	
 	vmaUnmapMemory(engine->_allocator, stagingBuffer._allocation);
 	
 	stbi_image_free(pixels);
@@ -101,7 +116,6 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 		
 		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear) || !generateMipmaps)
 		{
-			std::cout << "Texture image format does not support linear blitting! Falling back to 1 mipmap level";
 			outImage._mipLevels = 1;
 			// change layout to shader read optimal
 			vk::ImageMemoryBarrier imageBarrierToReadable = imageBarrierToTransfer;

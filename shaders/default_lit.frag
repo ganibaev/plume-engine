@@ -6,6 +6,7 @@ layout (location = 1) in vec2 texCoord;
 layout (location = 2) flat in uint matID;
 layout (location = 3) in vec3 fragPosWorld;
 layout (location = 4) in vec3 fragNormalWorld;
+layout (location = 5) in vec3 fragTangent;
 
 layout (location = 0) out vec4 outFragColor;
 
