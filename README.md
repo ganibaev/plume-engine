@@ -21,6 +21,8 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 To run the code and play around with it on your own on Windows, you can do the following from the Visual Studio Developer command prompt:
 ```bash
+git clone --recursive https://github.com/ganibaev/plume-engine.git
+cd plume-engine
 mkdir build
 cd build
 cmake ..
