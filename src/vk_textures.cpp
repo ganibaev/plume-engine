@@ -262,7 +262,7 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 		
 		std::vector<vk::BufferImageCopy> bufferCopyRegions;
 
-		size_t face = 0;
+		uint32_t face = 0;
 		for (size_t offset = 0; offset < images.size(); offset += subimageSize)
 		{
 			vk::BufferImageCopy copyRegion = {};

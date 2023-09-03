@@ -20,5 +20,5 @@ struct AllocatedImage
 {
 	uint32_t _mipLevels = 1;
 	vk::Image _image;
-	VmaAllocation _allocation;
+	VmaAllocation _allocation = {};
 };

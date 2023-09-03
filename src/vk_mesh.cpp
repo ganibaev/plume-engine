@@ -164,7 +164,7 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 
 		if (material)
 		{
-			newVertex.materialID = _parentScene->_matOffset + mesh->mMaterialIndex;
+			newVertex.materialID = static_cast<glm::uint>(_parentScene->_matOffset + mesh->mMaterialIndex);
 		}
 		newVertex.color = newVertex.normal;
 
@@ -191,7 +191,7 @@ void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<
 		names.push_back("");
 		return;
 	}
-	for (size_t i = 0; i < texCount; ++i)
+	for (unsigned int i = 0; i < texCount; ++i)
 	{
 		aiString name;
 		if (mat->GetTexture(type, i, &name) != aiReturn_FAILURE)

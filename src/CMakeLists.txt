@@ -1,4 +1,3 @@
-
 # Add source to this project's executable.
 add_executable(plume
     main.cpp
@@ -18,10 +17,11 @@ set_property(TARGET plume PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_
 
 target_include_directories(plume PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_BINARY_DIR}/third_party/assimp/include")
+    "${CMAKE_BINARY_DIR}/third_party/assimp/include"
+    "${CMAKE_BINARY_DIR}/third_party/SDL/include")
 
 target_link_libraries(plume vkbootstrap vma glm tinyobjloader imgui stb_image assimp)
 
-target_link_libraries(plume Vulkan::Vulkan sdl2)
+target_link_libraries(plume Vulkan::Vulkan SDL3::SDL3)
 
 add_dependencies(plume Shaders)

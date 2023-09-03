@@ -42,8 +42,6 @@ void VulkanEngine::init()
 	
 	_window = SDL_CreateWindow(
 		"Plume",
-		SDL_WINDOWPOS_UNDEFINED,
-		SDL_WINDOWPOS_UNDEFINED,
 		_windowExtent.width,
 		_windowExtent.height,
 		window_flags
@@ -404,7 +402,7 @@ void VulkanEngine::init_framebuffers()
 	fb_info.layers = 1;
 	
 	// grab number of images from swapchain
-	const uint32_t swapchain_imagecount = _swapchainImages.size();
+	const size_t swapchain_imagecount = _swapchainImages.size();
 	_framebuffers = std::vector<vk::Framebuffer>(swapchain_imagecount);
 
 	// create a framebuffer for each swapchain image view
@@ -505,8 +503,8 @@ void VulkanEngine::init_descriptors()
 
 	Model* scene = get_model("scene");
 
-	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0, _scene._diffuseTexNames.size());
+	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler,
+		vk::ShaderStageFlagBits::eFragment, 0, static_cast<uint32_t>(_scene._diffuseTexNames.size()));
 
 	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
 
@@ -667,11 +665,9 @@ void VulkanEngine::init_pipelines()
 	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
 
 	// use the vertex info with the pipeline builder
-	pipelineBuilder._vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
-	pipelineBuilder._vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size(); 
+	pipelineBuilder._vertexInputInfo.setVertexAttributeDescriptions(vertexDescription.attributes);
 
-	pipelineBuilder._vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
-	pipelineBuilder._vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
+	pipelineBuilder._vertexInputInfo.setVertexBindingDescriptions(vertexDescription.bindings);
 
 	pipelineBuilder._shaderStages.clear(); // clean up shader stages used previously
 
@@ -804,7 +800,7 @@ void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&&
 
 	_graphicsQueue.submit(submitInfo, _uploadContext._uploadFence);
 
-	_device.waitForFences(_uploadContext._uploadFence, true, 9999999999);
+	VK_CHECK(_device.waitForFences(_uploadContext._uploadFence, true, 9999999999));
 	_device.resetFences(_uploadContext._uploadFence);
 	
 	_device.resetCommandPool(_uploadContext._commandPool);
@@ -1070,10 +1066,10 @@ void VulkanEngine::init_scene()
 	MaterialSet* texturedMatSet = get_material_set("texturedmesh");
 
 	std::array<uint32_t, NUM_TEXTURE_TYPES> textureVariableDescCounts = {
-		_scene._diffuseTexNames.size(),
-		_scene._ambientTexNames.size(),
-		_scene._specularTexNames.size(),
-		_scene._normalMapNames.size(),
+		static_cast<uint32_t>(_scene._diffuseTexNames.size()),
+		static_cast<uint32_t>(_scene._ambientTexNames.size()),
+		static_cast<uint32_t>(_scene._specularTexNames.size()),
+		static_cast<uint32_t>(_scene._normalMapNames.size())
 	};
 
 	std::array<vk::DescriptorSetLayout, NUM_TEXTURE_TYPES> textureSetLayouts = {
@@ -1146,16 +1142,16 @@ void VulkanEngine::init_scene()
 	std::array<vk::WriteDescriptorSet, NUM_TEXTURE_TYPES> textureSetWrites;
 
 	textureSetWrites[DIFFUSE_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->diffuseTextureSet, diffuseImageBufferInfos.data(), 0, diffuseImageBufferInfos.size());
+		texturedMatSet->diffuseTextureSet, diffuseImageBufferInfos.data(), 0, static_cast<uint32_t>(diffuseImageBufferInfos.size()));
 
 	textureSetWrites[AMBIENT_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->ambientTextureSet, ambientImageBufferInfos.data(), 0, ambientImageBufferInfos.size());
+		texturedMatSet->ambientTextureSet, ambientImageBufferInfos.data(), 0, static_cast<uint32_t>(ambientImageBufferInfos.size()));
 
 	textureSetWrites[SPECULAR_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->specularTextureSet, specularImageBufferInfos.data(), 0, specularImageBufferInfos.size());
+		texturedMatSet->specularTextureSet, specularImageBufferInfos.data(), 0, static_cast<uint32_t>(specularImageBufferInfos.size()));
 
 	textureSetWrites[NORMAL_MAP_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->normalMapSet, normalMapImageBufferInfos.data(), 0, normalMapImageBufferInfos.size());
+		texturedMatSet->normalMapSet, normalMapImageBufferInfos.data(), 0, static_cast<uint32_t>(normalMapImageBufferInfos.size()));
 	
 	_device.updateDescriptorSets(textureSetWrites, {});
 
@@ -1280,7 +1276,7 @@ void VulkanEngine::cleanup()
 {	
 	if (_isInitialized) {
 		--_frameNumber;
-		_device.waitForFences(get_current_frame()._renderFence, true, 1000000000);
+		VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
 		++_frameNumber;
 
 		_mainDeletionQueue.flush();
@@ -1297,7 +1293,7 @@ void VulkanEngine::cleanup()
 void VulkanEngine::draw()
 {
 	// wait until the GPU has finished rendering the last frame, with timeout of 1 second
-	_device.waitForFences(get_current_frame()._renderFence, true, 1000000000);
+	VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
 	_device.resetFences(get_current_frame()._renderFence);
 
 	// request image to draw to, 1 second timeout
@@ -1456,7 +1452,7 @@ Model* VulkanEngine::get_model(const std::string& name)
 	}
 }
 
-void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int count)
+void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
@@ -1516,9 +1512,10 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 		{
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.materialSet->pipeline);
 			lastMaterialSet = object.materialSet;
-			
+
 			// scene & camera descriptor
-			uint32_t uniformOffset = pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData)) * frameIndex;
+			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
+				sizeof(GPUSceneData)) * frameIndex);
 
 			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 0,
 				_globalDescriptor, uniformOffset);
@@ -1569,7 +1566,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 
 		MeshPushConstants constants;
 		constants.render_matrix = object.transformMatrix;
-		constants.num_materials = _scene._matNames.size();
+		constants.num_materials = static_cast<glm::uint>(_scene._matNames.size());
 
 		// upload to GPU
 		if (!object.materialSet->skyboxSet)
@@ -1585,19 +1582,19 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, int 
 			cmd.bindIndexBuffer(object.mesh->_indexBuffer._buffer, offset, vk::IndexType::eUint32);
 		}
 
-		cmd.drawIndexed(object.mesh->_indices.size(), 1, 0, 0, i);
+		cmd.drawIndexed(static_cast<uint32_t>(object.mesh->_indices.size()), 1, 0, 0, i);
 	}
 }
 
 void VulkanEngine::on_mouse_motion_callback()
 {
-	int outRelX = 0;
-	int outRelY = 0;
+	float outRelX = 0;
+	float outRelY = 0;
 
 	SDL_GetRelativeMouseState(&outRelX, &outRelY);
 
-	float xOffset = static_cast<float>(outRelX);
-	float yOffset = -static_cast<float>(outRelY);
+	float xOffset = outRelX;
+	float yOffset = -outRelY;
 
 	_camera.process_camera_movement(xOffset, yOffset);
 }
@@ -1665,7 +1662,7 @@ void VulkanEngine::run()
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 	while (!bQuit)
 	{
-		float curFrameTime = static_cast<float>(SDL_GetTicks64() / 1000.0f);
+		float curFrameTime = static_cast<float>(SDL_GetTicks() / 1000.0f);
 		_deltaTime = curFrameTime - _lastFrameTime;
 		_lastFrameTime = curFrameTime;
 
@@ -1675,21 +1672,21 @@ void VulkanEngine::run()
 			// SDL window callback processing
 			switch (e.type)
 			{
-			case SDL_QUIT:
+			case SDL_EVENT_QUIT:
 				bQuit = true;
 				break;
-			case SDL_MOUSEMOTION:
+			case SDL_EVENT_MOUSE_MOTION:
 				mouseMotion = true;
 				break;
-			case SDL_MOUSEWHEEL:
+			case SDL_EVENT_MOUSE_WHEEL:
 				mouseWheel = true;
-				scrollY = e.wheel.preciseY;
+				scrollY = e.wheel.y;
 				break;
-			case SDL_KEYDOWN:
+			case SDL_EVENT_KEY_DOWN:
 				sym = e.key.keysym.sym;
 				keyDown = true;
 				break;
-			case SDL_KEYUP:
+			case SDL_EVENT_KEY_UP:
 				keyDown = false;
 				break;
 			default:
@@ -1768,7 +1765,7 @@ vk::Pipeline PipelineBuilder::buildPipeline(vk::Device device, vk::RenderPass pa
 	
 	// finally assemble the pipeline
 	vk::GraphicsPipelineCreateInfo pipelineInfo = {};
-	pipelineInfo.stageCount = _shaderStages.size();
+	pipelineInfo.stageCount = static_cast<uint32_t>(_shaderStages.size());
 	pipelineInfo.pStages = _shaderStages.data();
 	pipelineInfo.pVertexInputState = &_vertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &_inputAssembly;

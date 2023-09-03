@@ -262,7 +262,7 @@ public:
 
 	Model* get_model(const std::string& name);
 
-	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, int count);
+	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count);
 
 	DeletionQueue _mainDeletionQueue;
 private:
