@@ -19,9 +19,16 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 ## Running the code
 
-As the original architecture of the engine is based on the brilliant Vulkan Guide by Victor Blanco, to run it and play around with it on your own, you can follow the instructions here: https://vkguide.dev/docs/chapter-0/building_project/.
+To run the code and play around with it on your own on Windows, you can do the following from the Visual Studio Developer command prompt:
+```bash
+mkdir build
+cd build
+cmake ..
+msbuild plume.sln
+```
+The executable will be located in `{project-root}/build/bin/Debug/plume.exe`.
 
-Note that Vulkan validation layers are enabled by default. To turn them off, set `ENABLE_VALIDATION_LAYERS` to `true` on line 18 in the `src/vk_engine.cpp` file.
+Note that Vulkan validation layers are enabled by default. To turn them off, set `ENABLE_VALIDATION_LAYERS` to `false` on line 18 in the `src/vk_engine.cpp` file.
 
 ## Acknowledgements
 
