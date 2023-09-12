@@ -1,6 +1,6 @@
 # Plume Engine
 
-![plume-v0 10](https://github.com/ganibaev/plume-engine/assets/55918604/43ca3811-9886-4ca7-ba33-1a3484b97020)
+![plume-v0 10](https://github.com/ganibaev/plume-engine/assets/55918604/f37b5b97-77fb-4d73-b6c8-6a0e5e068160)
 ![plume-v0 10EXT](https://github.com/ganibaev/plume-engine/assets/55918604/2192c076-3fdd-4f84-b065-a70ed89347eb)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
