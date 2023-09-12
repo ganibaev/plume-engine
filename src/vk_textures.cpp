@@ -133,7 +133,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 			generate_mipmaps(cmd, newImage._image, texWidth, texHeight, newImage._mipLevels);
 		}
 
-	});
+	}, engine->_uploadContext._commandBuffer);
 
 	engine->_mainDeletionQueue.push_function([=]() {
 		vmaDestroyImage(engine->_allocator, newImage._image, newImage._allocation);
@@ -294,7 +294,7 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 
 		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr, nullptr, imageBarrierToReadable);
 
-	});
+	}, engine->_uploadContext._commandBuffer);
 
 	engine->_mainDeletionQueue.push_function([=]() {
 		vmaDestroyImage(engine->_allocator, newImage._image, newImage._allocation);

@@ -11,7 +11,9 @@ add_executable(plume
     vk_camera.cpp
     vk_camera.h
     vk_textures.cpp
-    vk_textures.h)
+    vk_textures.h
+    vk_raytracing.cpp
+    vk_raytracing.h)
 
 set_property(TARGET plume PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:plume>")
 

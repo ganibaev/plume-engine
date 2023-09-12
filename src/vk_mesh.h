@@ -43,7 +43,7 @@ struct Scene;
 
 struct Model
 {
-	Scene* _parentScene;
+	Scene* _parentScene = nullptr;
 
 	std::vector<Mesh> _meshes;
 

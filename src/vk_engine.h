@@ -6,6 +6,7 @@
 #include <tuple>
 #include <functional>
 #include <string>
+#include <iostream>
 
 #include "vk_camera.h"
 #include "vk_mesh.h"
@@ -15,12 +16,24 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
+#define VK_CHECK(x)																\
+	do																			\
+	{																			\
+		VkResult err = static_cast<VkResult>(x);								\
+		if (err)																\
+		{																		\
+			std::cout << "Detected Vulkan error: " << err << std::endl;			\
+			abort();															\
+		}																		\
+	} while (0)
+
 constexpr int NUM_TEXTURE_TYPES = 4;
 
 constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
 constexpr uint32_t AMBIENT_TEX_SLOT = 1;
 constexpr uint32_t SPECULAR_TEX_SLOT = 2;
 constexpr uint32_t NORMAL_MAP_SLOT = 3;
+constexpr uint32_t TLAS_SLOT = 4;
 
 class PipelineBuilder {
 public:
@@ -158,7 +171,7 @@ public:
 	
 	constexpr static float _camSpeed = 0.2f;
 
-	vk::Extent2D _windowExtent{ 1700 , 900 };
+	vk::Extent2D _windowExtent{ 1920 , 1080 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -186,11 +199,12 @@ public:
 	vk::Device _device; // commands will be executed on this 
 	vk::SurfaceKHR _surface; // window surface
 
-	vk::PhysicalDeviceProperties _gpuProperties;
+	vk::PhysicalDeviceProperties2 _gpuProperties;
+	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR _rtProperties;
 
 	UploadContext _uploadContext;
 
-	void immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function);
+	void immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd);
 
 	vk::SampleCountFlagBits _msaaSamples = vk::SampleCountFlagBits::e8;
 	
@@ -207,11 +221,17 @@ public:
 
 	size_t pad_uniform_buffer_size(size_t originalSize);
 
+	std::vector<AccelerationStructure> _bottomLevelASVec = {};
+	AccelerationStructure _topLevelAS = {};
+
 	vk::DescriptorSetLayout _globalSetLayout;
+	vk::DescriptorSetLayout _tlasSetLayout;
 	vk::DescriptorSetLayout _objectSetLayout;
 	vk::DescriptorPool _descriptorPool;
 
 	vk::DescriptorSet _globalDescriptor;
+
+	vk::DescriptorSet _tlasDescriptorSet;
 
 	vk::DescriptorSetLayout _textureSetLayout;
 	vk::DescriptorSetLayout _cubemapSetLayout;
@@ -246,6 +266,9 @@ public:
 	vk::PipelineLayout _meshPipelineLayout;
 
 	AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
+
+	vk::DeviceAddress get_buffer_device_address(vk::Buffer buffer);
+	BLASInput convert_to_blas_input(Mesh& mesh);
 	
 	std::vector<RenderObject> _renderables;
 
@@ -274,6 +297,8 @@ private:
 	void init_default_renderpass();
 	void init_framebuffers();
 
+	void init_raytracing();
+
 	void init_sync_structures();
 
 	void init_descriptors();
@@ -286,6 +311,10 @@ private:
 	void init_scene();
 
 	void load_meshes();
+
+	void init_blas();
+
+	void init_tlas();
 
 	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
 		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);

@@ -1,14 +1,13 @@
 ﻿#include "vk_engine.h"
 
-#include "vk_types.h"
 #include "vk_initializers.h"
 
 #include "vk_textures.h"
+#include "vk_raytracing.h"
 
 // This will make initialization much less of a pain
 #include "VkBootstrap.h"
 
-#include <iostream>
 #include <fstream>
 
 #include <unordered_map>
@@ -21,17 +20,7 @@ constexpr static float DRAW_DISTANCE = 3200.0f;
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
-#define VK_CHECK(x)																\
-	do																			\
-	{																			\
-		VkResult err = static_cast<VkResult>(x);								\
-		if (err)																\
-		{																		\
-			std::cout << "Detected Vulkan error: " << err << std::endl;			\
-			abort();															\
-		}																		\
-	} while (0)
-
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 void VulkanEngine::init()
 {
@@ -39,7 +28,7 @@ void VulkanEngine::init()
 	SDL_Init(SDL_INIT_VIDEO);
 
 	SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
-	
+
 	_window = SDL_CreateWindow(
 		"Plume",
 		_windowExtent.width,
@@ -58,6 +47,8 @@ void VulkanEngine::init()
 
 	init_framebuffers();
 
+	init_raytracing();
+
 	init_sync_structures();
 
 	load_meshes();
@@ -69,6 +60,10 @@ void VulkanEngine::init()
 	load_images();
 
 	init_scene();
+
+	init_blas();
+	
+	init_tlas();
 
 	// everything went fine
 	_isInitialized = true;
@@ -86,6 +81,7 @@ void VulkanEngine::init_vulkan()
 
 	vkb::Instance vkb_inst = inst_ret.value();
 
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkb_inst.fp_vkGetInstanceProcAddr);
 	// store instance
 	_instance = vkb_inst.instance;
 	// store debug messenger
@@ -102,6 +98,10 @@ void VulkanEngine::init_vulkan()
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 2)
 		.set_surface(_surface)
+		.add_required_extension("VK_KHR_acceleration_structure")
+		.add_required_extension("VK_KHR_ray_tracing_pipeline")
+		.add_required_extension("VK_KHR_ray_query")
+		.add_required_extension("VK_KHR_deferred_host_operations")
 		.select()
 		.value();
 
@@ -115,20 +115,33 @@ void VulkanEngine::init_vulkan()
 	descIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
 	descIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
 	descIndexingFeatures.descriptorBindingVariableDescriptorCount = VK_TRUE;
+
+	// add extensions for ray tracing
+
+	vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures;
+	accelFeatures.accelerationStructure = VK_TRUE;
+	vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures;
+	rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
+	vk::PhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures;
+	rayQueryFeatures.rayQuery = VK_TRUE;
+	vk::PhysicalDeviceBufferDeviceAddressFeatures addressFeatures;
+	addressFeatures.bufferDeviceAddress = VK_TRUE;
 	
-	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures).build().value();
+	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures)
+		.add_pNext(&accelFeatures).add_pNext(&rayQueryFeatures).add_pNext(&rtPipelineFeatures)
+		.add_pNext(&addressFeatures).build().value();
 
 	// get vk::Device handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
 	_device = vkbDevice.device;
 
-	_gpuProperties = physicalDevice.properties;
+	_gpuProperties = vk::PhysicalDeviceProperties2(physicalDevice.properties);
 
 	// use 8 samples for MSAA by default
 	// if the physical device doesn't support MSAA x8, fall back to max supported number of samples
 
-	vk::SampleCountFlags supportedSampleCounts = _gpuProperties.limits.framebufferColorSampleCounts &
-		_gpuProperties.limits.framebufferDepthSampleCounts;
+	vk::SampleCountFlags supportedSampleCounts = _gpuProperties.properties.limits.framebufferColorSampleCounts &
+		_gpuProperties.properties.limits.framebufferDepthSampleCounts;
 
 	if (!(supportedSampleCounts & vk::SampleCountFlagBits::e8))
 	{
@@ -155,7 +168,11 @@ void VulkanEngine::init_vulkan()
 	allocatorInfo.physicalDevice = _chosenGPU;
 	allocatorInfo.device = _device;
 	allocatorInfo.instance = _instance;
+	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 	vmaCreateAllocator(&allocatorInfo, &_allocator);
+
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(_instance);
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(_device);
 }
 
 void VulkanEngine::init_swapchain()
@@ -421,6 +438,12 @@ void VulkanEngine::init_framebuffers()
 	}
 }
 
+void VulkanEngine::init_raytracing()
+{
+	_gpuProperties.pNext = &_rtProperties;
+	_chosenGPU.getProperties2(&_gpuProperties);
+}
+
 void VulkanEngine::init_sync_structures()
 {
 	vk::FenceCreateInfo uploadFenceCreateInfo = vkinit::fence_create_info();
@@ -459,7 +482,8 @@ void VulkanEngine::init_descriptors()
 		{ vk::DescriptorType::eUniformBuffer, 10 },
 		{ vk::DescriptorType::eUniformBufferDynamic, 10 },
 		{ vk::DescriptorType::eStorageBuffer, 10 },
-		{ vk::DescriptorType::eCombinedImageSampler, 20 }
+		{ vk::DescriptorType::eCombinedImageSampler, 20 },
+		{ vk::DescriptorType::eAccelerationStructureKHR, 1 }
 	};
 	
 	vk::DescriptorPoolCreateInfo poolInfo = {};
@@ -468,6 +492,21 @@ void VulkanEngine::init_descriptors()
 	poolInfo.pPoolSizes = poolSizes.data();
 
 	_descriptorPool = _device.createDescriptorPool(poolInfo);
+
+	vk::DescriptorSetLayoutBinding tlasBinding =
+		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eAccelerationStructureKHR, vk::ShaderStageFlagBits::eFragment, 0);
+
+	vk::DescriptorSetLayoutCreateInfo tlasLayoutInfo;
+	tlasLayoutInfo.setBindings(tlasBinding);
+
+	_tlasSetLayout = _device.createDescriptorSetLayout(tlasLayoutInfo);
+
+	vk::DescriptorSetAllocateInfo tlasSetAllocInfo;
+	tlasSetAllocInfo.descriptorPool = _descriptorPool;
+	tlasSetAllocInfo.setSetLayouts(_tlasSetLayout);
+	tlasSetAllocInfo.descriptorSetCount = 1;
+
+	_tlasDescriptorSet = _device.allocateDescriptorSets(tlasSetAllocInfo)[0];
 
 	vk::DescriptorSetLayoutBinding camSceneBufferBinding = 
 		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eUniformBufferDynamic,
@@ -571,6 +610,7 @@ void VulkanEngine::init_descriptors()
 
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyBuffer(_allocator, _camSceneBuffer._buffer, _camSceneBuffer._allocation);
+		_device.destroyDescriptorSetLayout(_tlasSetLayout);
 		_device.destroyDescriptorSetLayout(_globalSetLayout);
 		_device.destroyDescriptorSetLayout(_objectSetLayout);
 		_device.destroyDescriptorSetLayout(_textureSetLayout);
@@ -614,7 +654,8 @@ void VulkanEngine::init_pipelines()
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
 
 	vk::DescriptorSetLayout texSetLayouts[] = {
-		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout
+		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout,
+		_textureSetLayout, _tlasSetLayout
 	};
 
 	texturedPipelineLayoutInfo.setSetLayouts(texSetLayouts);
@@ -785,9 +826,8 @@ void VulkanEngine::init_pipelines()
 	});
 }
 
-void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function)
+void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd)
 {
-	vk::CommandBuffer cmd = _uploadContext._commandBuffer;
 	vk::CommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 	
 	cmd.begin(cmdBeginInfo);
@@ -840,6 +880,50 @@ void VulkanEngine::load_meshes()
 	}
 
 	_scene._models["cube"] = cube;
+}
+
+void VulkanEngine::init_blas()
+{
+	std::vector<BLASInput> blasInputs;
+
+	for (size_t i = 0; i < _renderables.size() - 1; ++i)
+	{
+		blasInputs.emplace_back(convert_to_blas_input(*_renderables[i].mesh));
+	}
+
+	vkrt::buildBlas(this, blasInputs);
+}
+
+void VulkanEngine::init_tlas()
+{
+	std::vector<vk::AccelerationStructureInstanceKHR> tlas;
+	tlas.reserve(_renderables.size() - 1);
+
+	for (uint32_t i = 0; i < _renderables.size() - 1; ++i)
+	{
+		vk::AccelerationStructureInstanceKHR accelInst;
+		accelInst.setTransform(vkrt::convertToTransformKHR(_renderables[i].transformMatrix));
+		accelInst.setInstanceCustomIndex(i);
+		accelInst.setAccelerationStructureReference(vkrt::getBlasDeviceAddress(this, i));
+		accelInst.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
+		accelInst.setMask(0xFF);
+
+		tlas.emplace_back(accelInst);
+	}
+
+	vkrt::buildTlas(this, tlas);
+
+	vk::WriteDescriptorSetAccelerationStructureKHR descTlasWrite;
+	descTlasWrite.setAccelerationStructures(_topLevelAS._structure);
+
+	vk::WriteDescriptorSet descWrite;
+	descWrite.dstBinding = 0;
+	descWrite.dstSet = _tlasDescriptorSet;
+	descWrite.descriptorCount = 1;
+	descWrite.descriptorType = vk::DescriptorType::eAccelerationStructureKHR;
+	descWrite.pNext = &descTlasWrite;
+
+	_device.updateDescriptorSets(descWrite, {});
 }
 
 void VulkanEngine::load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
@@ -1044,22 +1128,24 @@ void VulkanEngine::init_scene()
 	// but keeping the possibility to turn it on if needed
 	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(-14.0f, -3.0f, -1.0f)), 0.0f);
 	_sceneParameters.dirLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f };
-	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.02f };
+	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.05f };
 
 	PointLight centralLight = {};
 	centralLight.position = glm::vec4{ _centralLightPos, 0.0f };
-	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 300.0f };
+	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 200.0f };
 	_sceneParameters.pointLights[0] = centralLight;
 
-	PointLight leftLight = {};
-	leftLight.position = glm::vec4{ -16.8f, 3.0f, -5.0f, 0.0f };
-	leftLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 100.0f };
+	// turning front light off (w = 0.0) to better highlight central light,
+	// but keeping the possibility to turn it on if needed
+	PointLight frontLight = {};
+	frontLight.position = glm::vec4{ 2.8f, 3.0f, -5.0f, 0.0f };
+	frontLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 0.0f };
 
-	PointLight rightLight = {};
-	rightLight.position = glm::vec4{ 21.8f, 3.0f, -5.0f, 0.0f };
-	rightLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 100.0f };
-	_sceneParameters.pointLights[1] = leftLight;
-	_sceneParameters.pointLights[2] = rightLight;
+	PointLight backLight = {};
+	backLight.position = glm::vec4{ 2.8f, 3.0f, 28.0f, 0.0f };
+	backLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 150.0f };
+	_sceneParameters.pointLights[1] = frontLight;
+	_sceneParameters.pointLights[2] = backLight;
 	
 	// create descriptor set for texture(s)
 
@@ -1195,7 +1281,8 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 	// allocate Vertex Buffer
 	vk::BufferCreateInfo vertexBufferInfo = {};
 	vertexBufferInfo.size = bufferSize;
-	vertexBufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
+	vertexBufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
 	
 	vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
@@ -1212,7 +1299,7 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 		copy.srcOffset = 0;
 		copy.size = bufferSize;
 		cmd.copyBuffer(vertexStagingBuffer._buffer, mesh._vertexBuffer._buffer, copy);
-	});
+	}, _uploadContext._commandBuffer);
 
 	// now do the same with the Index buffer
 
@@ -1242,7 +1329,8 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 
 	vk::BufferCreateInfo indexBufferInfo = {};
 	indexBufferInfo.size = mesh._indices.size() * sizeof(uint32_t);
-	indexBufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer;
+	indexBufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
 
 	vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
@@ -1259,7 +1347,7 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 		copy.srcOffset = 0;
 		copy.size = mesh._indices.size() * sizeof(uint32_t);
 		cmd.copyBuffer(indexStagingBuffer._buffer, mesh._indexBuffer._buffer, copy);
-	});
+	}, _uploadContext._commandBuffer);
 
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(mesh._vertexBuffer._buffer),
@@ -1389,7 +1477,7 @@ void VulkanEngine::draw()
 size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
 {
 	// calculate alignment based on min device offset alignment
-	size_t minUBOAlignment = _gpuProperties.limits.minUniformBufferOffsetAlignment;
+	size_t minUBOAlignment = _gpuProperties.properties.limits.minUniformBufferOffsetAlignment;
 	size_t alignedSize = originalSize;
 	if (minUBOAlignment > 0)
 	{
@@ -1415,6 +1503,44 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFla
 
 	newBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
 	return newBuffer;
+}
+
+vk::DeviceAddress VulkanEngine::get_buffer_device_address(vk::Buffer buffer)
+{
+	vk::BufferDeviceAddressInfo bufferAddressInfo;
+	bufferAddressInfo.setBuffer(buffer);
+	return _device.getBufferAddress(bufferAddressInfo);
+}
+
+BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
+{
+	vk::DeviceAddress vertexAddress = get_buffer_device_address(mesh._vertexBuffer._buffer);
+	vk::DeviceAddress indexAddress = get_buffer_device_address(mesh._indexBuffer._buffer);
+
+	uint32_t maxVertices = static_cast<uint32_t>(mesh._indices.size());
+	uint32_t maxPrimCount = static_cast<uint32_t>(mesh._indices.size()) / 3;
+
+	BLASInput blasInput = {};
+	
+	blasInput._triangles.vertexFormat = vk::Format::eR32G32B32A32Sfloat;
+	blasInput._triangles.vertexData.deviceAddress = vertexAddress;
+	blasInput._triangles.vertexStride = sizeof(Vertex);
+
+	blasInput._triangles.indexType = vk::IndexType::eUint32;
+	blasInput._triangles.indexData = indexAddress;
+	blasInput._triangles.maxVertex = maxVertices;
+
+	// The data contains opaque geometry
+	blasInput._geometry.geometryType = vk::GeometryTypeKHR::eTriangles;
+	blasInput._geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
+	blasInput._geometry.setGeometry(blasInput._triangles);
+
+	blasInput._buildRangeInfo.firstVertex = 0;
+	blasInput._buildRangeInfo.primitiveCount = maxPrimCount;
+	blasInput._buildRangeInfo.primitiveOffset = 0;
+	blasInput._buildRangeInfo.transformOffset = 0;
+
+	return blasInput;
 }
 
 MaterialSet* VulkanEngine::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name)
@@ -1523,6 +1649,13 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			// object descriptor
 			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 1,
 				get_current_frame()._objectDescriptor, {});
+
+			// TLAS descriptor
+			if (object.materialSet->diffuseTextureSet)
+			{
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 2 + TLAS_SLOT,
+					_tlasDescriptorSet, {});
+			}
 
 			// diffuse texture descriptor
 			if (object.materialSet->diffuseTextureSet)

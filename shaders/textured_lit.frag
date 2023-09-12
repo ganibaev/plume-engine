@@ -1,10 +1,13 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_ray_query : enable
 
 #define DIFFUSE_TEX_SLOT 0U
 #define AMBIENT_TEX_SLOT 1U
 #define SPECULAR_TEX_SLOT 2U
 #define NORMAL_MAP_SLOT 3U
+#define TLAS_SLOT 4U
 
 layout (location = 0) in vec3 inColor;
 layout (location = 1) in vec2 texCoord;
@@ -63,6 +66,8 @@ layout (set = 2 + AMBIENT_TEX_SLOT, binding = 0) uniform sampler2D ambientTex[];
 layout (set = 2 + SPECULAR_TEX_SLOT, binding = 0) uniform sampler2D specularTex[];
 layout (set = 2 + NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
 
+layout (set = 2 + TLAS_SLOT, binding = 0) uniform accelerationStructureEXT topLevelAS;
+
 void main()
 {
 	vec3 resColor = vec3(0.0, 0.0, 0.0);
@@ -115,6 +120,7 @@ void main()
 	for (int i = 0; i < NUM_LIGHTS; ++i)
 	{
 		vec3 directionToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
+		vec3 vecToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
 		float attenuation = 1.0 / dot(directionToPointLight, directionToPointLight);
 
 		vec3 pointLightIntensity = camSceneData.pointLights[i].color.rgb * camSceneData.pointLights[i].color.a * attenuation;
@@ -128,6 +134,24 @@ void main()
 		float blinnTerm = clamp(dot(surfaceNormal, halfAngle), 0.0, 1.0);
 		blinnTerm = pow(blinnTerm, 32.0);
 		vec3 specularPointLight = pointLightIntensity * blinnTerm;
+
+		// shadow ray
+		vec3 origin = fragPosWorld.xyz;
+		float tMin = 0.01;
+		float tMax = length(vecToPointLight);
+
+		rayQueryEXT shadowQuery;
+		rayQueryInitializeEXT(shadowQuery, topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, tMin,
+			directionToPointLight, tMax);
+
+		while (rayQueryProceedEXT(shadowQuery))
+		{
+		}
+
+		if (rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+		{
+			continue;
+		}
 
 		resColor += (diffusePointLight * diffuseMaterial.rgb + specularPointLight * specularMaterial.rgb);
 	}
