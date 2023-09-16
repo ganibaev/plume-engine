@@ -68,6 +68,23 @@ layout (set = 2 + NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
 
 layout (set = 2 + TLAS_SLOT, binding = 0) uniform accelerationStructureEXT topLevelAS;
 
+bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
+{
+	rayQueryEXT shadowQuery;
+	rayQueryInitializeEXT(shadowQuery, topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, tMin,
+		direction, tMax);
+
+	while (rayQueryProceedEXT(shadowQuery))
+	{
+	}
+
+	if (rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+	{
+		return true;
+	}
+	return false;
+}
+
 void main()
 {
 	vec3 resColor = vec3(0.0, 0.0, 0.0);
@@ -105,6 +122,7 @@ void main()
 
 	// diffuse
 	float diffuseDir = camSceneData.dirLight.direction.w * max(dot(surfaceNormal, dirToLightDir), 0.0);
+	vec3 dirDiffuse = diffuseDir * diffuseMaterial.rgb * camSceneData.dirLight.color.rgb;
 	
 	// specular
 	vec3 halfAngle = normalize(dirToLightDir + viewDirection);
@@ -112,13 +130,23 @@ void main()
 	blinnTerm = pow(blinnTerm, 32.0);
 	float specularDir = camSceneData.dirLight.direction.w * blinnTerm;
 
-	vec3 dirDiffuse = diffuseDir * diffuseMaterial.rgb;
 	vec3 dirSpecular = specularDir * specularMaterial.rgb;
+
+	if (shadowRayHit(fragPosWorld.xyz, dirToLightDir, 0.01, 10000.0))
+	{
+		dirDiffuse = vec3(0.0);
+		dirSpecular = vec3(0.0);
+	}
 
 	resColor = dirDiffuse + dirSpecular;
 
 	for (int i = 0; i < NUM_LIGHTS; ++i)
 	{
+		if (camSceneData.pointLights[i].color.w < 0.01)
+		{
+			continue;
+		}
+
 		vec3 directionToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
 		vec3 vecToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
 		float attenuation = 1.0 / dot(directionToPointLight, directionToPointLight);
@@ -140,15 +168,7 @@ void main()
 		float tMin = 0.01;
 		float tMax = length(vecToPointLight);
 
-		rayQueryEXT shadowQuery;
-		rayQueryInitializeEXT(shadowQuery, topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, tMin,
-			directionToPointLight, tMax);
-
-		while (rayQueryProceedEXT(shadowQuery))
-		{
-		}
-
-		if (rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+		if (shadowRayHit(origin, directionToPointLight, tMin, tMax))
 		{
 			continue;
 		}

@@ -47,8 +47,10 @@ public:
 	vk::PipelineMultisampleStateCreateInfo _multisampling;
 	vk::PipelineDepthStencilStateCreateInfo _depthStencil;
 	vk::PipelineLayout _pipelineLayout;
+
+	vk::PipelineRenderingCreateInfo _renderingCreateInfo;
 	
-	vk::Pipeline buildPipeline(vk::Device device, vk::RenderPass pass);
+	vk::Pipeline buildPipeline(vk::Device device);
 };
 
 struct MaterialSet
@@ -206,8 +208,6 @@ public:
 
 	void immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd);
 
-	vk::SampleCountFlagBits _msaaSamples = vk::SampleCountFlagBits::e8;
-	
 	Scene _scene;
 
 	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
@@ -243,9 +243,7 @@ public:
 
 	std::vector<vk::ImageView> _swapchainImageViews;
 
-	vk::ImageView _colorImageView;
-	AllocatedImage _colorImage;
-	vk::Format _colorFormat;
+	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 
 	vk::ImageView _depthImageView;
 	AllocatedImage _depthImage;
@@ -256,9 +254,6 @@ public:
 
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame();
-
-	vk::RenderPass _renderPass;
-	std::vector<vk::Framebuffer> _framebuffers;
 
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
@@ -293,9 +288,6 @@ private:
 	void init_vulkan();
 	void init_swapchain();
 	void init_commands();
-
-	void init_default_renderpass();
-	void init_framebuffers();
 
 	void init_raytracing();
 

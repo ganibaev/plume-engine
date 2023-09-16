@@ -154,17 +154,18 @@ vk::PipelineDepthStencilStateCreateInfo vkinit::depth_stencil_create_info(bool b
 	return info;
 }
 
-vk::RenderPassBeginInfo vkinit::render_pass_begin_info(vk::RenderPass renderPass, vk::Extent2D windowExtent, vk::Framebuffer framebuffer)
+vk::RenderingAttachmentInfo vkinit::rendering_attachment_info(vk::ImageView imageView, vk::ImageLayout imageLayout,
+	vk::AttachmentLoadOp loadOp, vk::AttachmentStoreOp storeOp, vk::ClearValue clearValue)
 {
-	vk::RenderPassBeginInfo rpInfo = {};
+	vk::RenderingAttachmentInfo attachmentInfo;
+	
+	attachmentInfo.imageView = imageView;
+	attachmentInfo.imageLayout = imageLayout;
+	attachmentInfo.loadOp = loadOp;
+	attachmentInfo.storeOp = storeOp;
+	attachmentInfo.clearValue = clearValue;
 
-	rpInfo.renderPass = renderPass;
-	rpInfo.renderArea.offset.x = 0;
-	rpInfo.renderArea.offset.y = 0;
-	rpInfo.renderArea.extent = windowExtent;
-	rpInfo.framebuffer = framebuffer;
-
-	return rpInfo;
+	return attachmentInfo;
 }
 
 vk::PipelineColorBlendAttachmentState vkinit::color_blend_attachment_state(vk::Bool32 blendEnable /* = VK_FALSE */)

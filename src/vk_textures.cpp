@@ -20,7 +20,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	}
 
 	void* pixel_ptr = pixels;
-	
+
 	vk::DeviceSize imageSize = static_cast<uint64_t>(texWidth) * texHeight * 4;
 
 	outImage._mipLevels = generateMipmaps ? static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1 : 1;
@@ -50,9 +50,9 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	vmaMapMemory(engine->_allocator, stagingBuffer._allocation, &data);
 
 	memcpy(data, pixel_ptr, static_cast<size_t>(imageSize));
-	
+
 	vmaUnmapMemory(engine->_allocator, stagingBuffer._allocation);
-	
+
 	stbi_image_free(pixels);
 
 	vk::Extent3D imageExtent;
@@ -62,7 +62,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 
 	vk::ImageCreateInfo imageInfo = vkinit::image_create_info(imageFormat, vk::ImageUsageFlagBits::eSampled |
 		vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, imageExtent, outImage._mipLevels);
-	
+
 	AllocatedImage newImage;
 
 	newImage._mipLevels = outImage._mipLevels;

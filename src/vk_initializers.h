@@ -25,8 +25,9 @@ namespace vkinit {
 	vk::PipelineMultisampleStateCreateInfo multisampling_state_create_info(vk::SampleCountFlagBits numSamples);
 	vk::PipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, vk::CompareOp compareOp);
 	
-	vk::RenderPassBeginInfo render_pass_begin_info(vk::RenderPass renderPass, vk::Extent2D windowExtent, vk::Framebuffer framebuffer);
-	
+	vk::RenderingAttachmentInfo rendering_attachment_info(vk::ImageView imageView, vk::ImageLayout imageLayout,
+		vk::AttachmentLoadOp loadOp, vk::AttachmentStoreOp storeOp, vk::ClearValue clearValue);
+
 	vk::PipelineColorBlendAttachmentState color_blend_attachment_state(vk::Bool32 blendEnable = VK_FALSE);
 	vk::PipelineLayoutCreateInfo pipeline_layout_create_info();
 
