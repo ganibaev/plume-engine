@@ -7,6 +7,13 @@ layout (location = 3) in vec2 vTexCoord;
 layout (location = 4) in uint vMatID;
 layout (location = 5) in vec3 vTangent;
 
+layout (location = 0) out vec3 outColor;
+layout (location = 1) out vec2 texCoord;
+layout (location = 2) flat out uint matID;
+layout (location = 3) out vec3 fragPosWorld;
+layout (location = 4) out vec3 fragNormalWorld;
+layout (location = 5) out vec3 fragTangent;
+
 struct CameraData
 {
 	mat4 view;
@@ -31,19 +38,20 @@ layout (std140, set = 1, binding = 0) readonly buffer ObjectBuffer
 	ObjectData objects[];
 } objectBuffer;
 
-layout (location = 0) out vec3 outUVW;
-
-layout (push_constant) uniform constants
-{
-	mat4 renderMatrix;
-} PushConstants;
-
 void main()
 {
-	// normal transform, no non-uniform scaling
+	mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].model;
 
-	vec4 vPositionWorld = PushConstants.renderMatrix * vec4(vPosition, 1.0);
+	// normal transform, no non-uniform scaling
+	fragNormalWorld = normalize(modelMatrix * vec4(vNormal, 0.0)).xyz;
+
+	vec4 vPositionWorld = modelMatrix * vec4(vPosition, 1.0);
+	fragPosWorld = vPositionWorld.xyz;
+
 	gl_Position = camSceneData.camData.viewproj * vPositionWorld;
-	
-	outUVW = vPosition;
+
+	outColor = vColor;
+	texCoord = vTexCoord;
+	matID = vMatID;
+	fragTangent = vTangent;
 }

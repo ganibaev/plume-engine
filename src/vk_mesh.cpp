@@ -95,8 +95,8 @@ bool Model::load_assimp(std::string filePath)
 		std::string diffTexName = "";
 
 		load_texture_names(material, aiTextureType_DIFFUSE, parentScene._diffuseTexNames, &diffTexName);
-		load_texture_names(material, aiTextureType_AMBIENT, parentScene._ambientTexNames);
-		load_texture_names(material, aiTextureType_SPECULAR, parentScene._specularTexNames);
+		load_texture_names(material, aiTextureType_METALNESS, parentScene._metallicTexNames);
+		load_texture_names(material, aiTextureType_DIFFUSE_ROUGHNESS, parentScene._roughnessTexNames);
 		load_texture_names(material, aiTextureType_NORMALS, parentScene._normalMapNames);
 
 		if (matName.empty())
@@ -207,114 +207,4 @@ void Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<
 			names.push_back("");
 		}
 	}
-}
-
-bool Model::load_from_obj(std::string filePath)
-{
-	Scene& parentScene = *_parentScene;
-
-	std::string matBaseDir = "../../../assets/";
-
-	tinyobj::attrib_t vertexAttributes;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
-
-	std::string warn;
-	std::string err;
-
-	tinyobj::LoadObj(&vertexAttributes, &shapes, &materials, &warn, &err, filePath.data(), matBaseDir.data());
-
-	if (!warn.empty())
-	{
-		std::cout << "WARNING: " << warn << std::endl;
-	}
-
-	if (!err.empty())
-	{
-		std::cout << "ERROR: " << err << std::endl;
-		return false;
-	}
-
-	parentScene._diffuseTexNames.resize(materials.size());
-	parentScene._ambientTexNames.resize(materials.size());
-	parentScene._specularTexNames.resize(materials.size());
-	size_t matNamesBaseSize = parentScene._matNames.size();
-	parentScene._matNames.resize(matNamesBaseSize + materials.size());
-
-	for (size_t m = 0; m < matNamesBaseSize + materials.size(); ++m)
-	{
-		parentScene._matNames[m] = materials[m].name;
-
-		if (!materials[m].diffuse_texname.empty())
-		{
-			parentScene._diffuseTexNames[m] = matBaseDir + materials[m].diffuse_texname;
-		}
-
-		if (!materials[m].ambient_texname.empty())
-		{
-			parentScene._ambientTexNames[m] = matBaseDir + materials[m].ambient_texname;
-		}
-
-		if (!materials[m].specular_texname.empty())
-		{
-			parentScene._specularTexNames[m] = matBaseDir + materials[m].specular_texname;
-		}
-	}
-
-	for (size_t s = 0; s < shapes.size(); ++s)
-	{
-		Mesh newMesh;
-
-		size_t indexOffset = 0;
-		constexpr int verticesPerFace = 3;
-
-		newMesh._vertices.reserve(newMesh._vertices.size() +
-			shapes[s].mesh.num_face_vertices.size() * verticesPerFace);
-
-		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f)
-		{
-			for (size_t v = 0; v < verticesPerFace; ++v)
-			{
-				// access the vertex
-				tinyobj::index_t idx = shapes[s].mesh.indices[indexOffset + v];
-
-				// positions
-				tinyobj::real_t vx = vertexAttributes.vertices[3 * idx.vertex_index + 0];
-				tinyobj::real_t vy = vertexAttributes.vertices[3 * idx.vertex_index + 1];
-				tinyobj::real_t vz = vertexAttributes.vertices[3 * idx.vertex_index + 2];
-
-				// normals
-				tinyobj::real_t nx = vertexAttributes.normals[3 * idx.normal_index + 0];
-				tinyobj::real_t ny = vertexAttributes.normals[3 * idx.normal_index + 1];
-				tinyobj::real_t nz = vertexAttributes.normals[3 * idx.normal_index + 2];
-
-				// copy into a Vertex
-				Vertex newVertex;
-				newVertex.position.x = vx;
-				newVertex.position.y = vy;
-				newVertex.position.z = vz;
-
-				newVertex.normal.x = nx;
-				newVertex.normal.y = ny;
-				newVertex.normal.z = nz;
-
-				// draw normals as default material
-				newVertex.color = newVertex.normal;
-
-				// vertex uv
-				tinyobj::real_t ux = vertexAttributes.texcoords.empty() ? 0 : vertexAttributes.texcoords[2 * idx.texcoord_index + 0];
-				tinyobj::real_t uy = vertexAttributes.texcoords.empty() ? 0 : vertexAttributes.texcoords[2 * idx.texcoord_index + 1];
-
-				newVertex.uv.x = ux;
-				newVertex.uv.y = 1 - uy; // Vulkan convention
-
-				newVertex.materialID = shapes[s].mesh.material_ids[f];
-
-				newMesh._vertices.push_back(newVertex);
-			}
-			indexOffset += verticesPerFace;
-		}
-	}
-
-	return true;
 }

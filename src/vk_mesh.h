@@ -48,7 +48,6 @@ struct Model
 	std::vector<Mesh> _meshes;
 
 	bool load_assimp(std::string filePath);
-	bool load_from_obj(std::string filePath);
 
 	void process_node(aiNode* node, const aiScene& scene);
 	void process_mesh(aiMesh* mesh, const aiScene& scene);
@@ -63,9 +62,9 @@ struct Scene
 	std::unordered_map<std::string, Model> _models;
 
 	std::vector<std::string> _matNames;
-	std::vector<std::string> _ambientTexNames;
 	std::vector<std::string> _diffuseTexNames;
-	std::vector<std::string> _specularTexNames;
+	std::vector<std::string> _metallicTexNames;
+	std::vector<std::string> _roughnessTexNames;
 	std::vector<std::string> _normalMapNames;
 
 	std::string _directory;

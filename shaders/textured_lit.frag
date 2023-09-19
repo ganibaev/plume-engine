@@ -4,10 +4,9 @@
 #extension GL_EXT_ray_query : enable
 
 #define DIFFUSE_TEX_SLOT 0U
-#define AMBIENT_TEX_SLOT 1U
-#define SPECULAR_TEX_SLOT 2U
-#define NORMAL_MAP_SLOT 3U
-#define TLAS_SLOT 4U
+#define SPECULAR_TEX_SLOT 1U
+#define NORMAL_MAP_SLOT 2U
+#define TLAS_SLOT 3U
 
 layout (location = 0) in vec3 inColor;
 layout (location = 1) in vec2 texCoord;
@@ -19,12 +18,6 @@ layout (location = 5) in vec3 fragTangent;
 layout (location = 0) out vec4 outFragColor;
 
 layout(constant_id = 0) const uint NUM_LIGHTS = 3;
-
-layout (push_constant) uniform constants
-{
-	vec4 data;
-	mat4 renderMatrix;
-} PushConstants;
 
 struct CameraData
 {
@@ -62,7 +55,6 @@ layout (set = 0, binding = 0) uniform CameraBuffer
 } camSceneData;
 
 layout (set = 2 + DIFFUSE_TEX_SLOT, binding = 0) uniform sampler2D diffuseTex[];
-layout (set = 2 + AMBIENT_TEX_SLOT, binding = 0) uniform sampler2D ambientTex[];
 layout (set = 2 + SPECULAR_TEX_SLOT, binding = 0) uniform sampler2D specularTex[];
 layout (set = 2 + NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
 
@@ -90,7 +82,6 @@ void main()
 	vec3 resColor = vec3(0.0, 0.0, 0.0);
 
 	vec4 diffuseMaterial = texture(diffuseTex[matID], texCoord);
-	vec4 ambientMaterial = texture(ambientTex[matID], texCoord);
 	vec4 specularMaterial = texture(specularTex[matID], texCoord);
 	vec4 normalTex = texture(normalMap[matID], texCoord);
 
@@ -114,8 +105,7 @@ void main()
 	vec3 viewDirection = normalize(camPosWorld - fragPosWorld);
 
 	// ambient
-	vec3 ambientLight = camSceneData.sceneData.ambientLight.rgb * camSceneData.sceneData.ambientLight.a *
-		ambientMaterial.rgb;
+	vec3 ambientLight = camSceneData.sceneData.ambientLight.rgb * camSceneData.sceneData.ambientLight.a;
 
 	// directional light
 	vec3 dirToLightDir = normalize(-camSceneData.dirLight.direction.xyz);

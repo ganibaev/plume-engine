@@ -29,11 +29,18 @@
 
 constexpr int NUM_TEXTURE_TYPES = 4;
 
+constexpr int NUM_GBUFFER_ATTACHMENTS = 4;
+
 constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
-constexpr uint32_t AMBIENT_TEX_SLOT = 1;
-constexpr uint32_t SPECULAR_TEX_SLOT = 2;
+constexpr uint32_t METALLIC_TEX_SLOT = 1;
+constexpr uint32_t ROUGHNESS_TEX_SLOT = 2;
 constexpr uint32_t NORMAL_MAP_SLOT = 3;
 constexpr uint32_t TLAS_SLOT = 4;
+
+constexpr uint32_t GBUFFER_POSITION_SLOT = 0;
+constexpr uint32_t GBUFFER_NORMAL_SLOT = 1;
+constexpr uint32_t GBUFFER_ALBEDO_SLOT = 2;
+constexpr uint32_t GBUFFER_METALLIC_ROUGHNESS_SLOT = 3;
 
 class PipelineBuilder {
 public:
@@ -49,15 +56,15 @@ public:
 	vk::PipelineLayout _pipelineLayout;
 
 	vk::PipelineRenderingCreateInfo _renderingCreateInfo;
-	
+
 	vk::Pipeline buildPipeline(vk::Device device);
 };
 
 struct MaterialSet
 {
 	vk::DescriptorSet diffuseTextureSet;
-	vk::DescriptorSet ambientTextureSet;
-	vk::DescriptorSet specularTextureSet;
+	vk::DescriptorSet metallicTextureSet;
+	vk::DescriptorSet roughnessTextureSet;
 	vk::DescriptorSet normalMapSet;
 	vk::DescriptorSet skyboxSet;
 	vk::Pipeline pipeline;
@@ -86,9 +93,7 @@ struct RenderObject
 
 struct MeshPushConstants
 {
-	glm::vec4 data;
 	glm::mat4 render_matrix;
-	glm::uint num_materials;
 };
 
 constexpr uint32_t FRAME_OVERLAP = 3;
@@ -144,6 +149,7 @@ struct FrameData
 
 	AllocatedBuffer _objectBuffer;
 	vk::DescriptorSet _objectDescriptor;
+	vk::DescriptorSet _gBufferDescriptorSet;
 };
 
 struct DeletionQueue {
@@ -173,7 +179,9 @@ public:
 	
 	constexpr static float _camSpeed = 0.2f;
 
-	vk::Extent2D _windowExtent{ 1920 , 1080 };
+	vk::Extent2D _windowExtent{ 1920, 1080 };
+
+	vk::Extent3D _windowExtent3D{ _windowExtent, 1 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -243,11 +251,17 @@ public:
 
 	std::vector<vk::ImageView> _swapchainImageViews;
 
+	void image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
+		vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
+		vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask);
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 
 	vk::ImageView _depthImageView;
-	AllocatedImage _depthImage;
+	vk::Image _depthImage;
 	vk::Format _depthFormat;
+
+	vk::ImageView _lightingDepthImageView;
+	AllocatedImage _lightingDepthImage;
 
 	vk::Queue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
@@ -255,12 +269,27 @@ public:
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame();
 
+	vk::RenderingInfo _geometryPassInfo;
+	vk::RenderingInfo _lightingPassInfo;
+
+	vk::PipelineRenderingCreateInfo _geometryPassPipelineInfo;
+	vk::PipelineRenderingCreateInfo _lightingPassPipelineInfo;
+
+	vk::PipelineLayout _lightingPassPipelineLayout;
+	vk::Pipeline _lightingPassPipeline;
+
+	vk::DescriptorSetLayout _gBufferSetLayout;
+
+	std::array<vk::Image, NUM_GBUFFER_ATTACHMENTS> _gBufferImages;
+	std::array<vk::RenderingAttachmentInfo, NUM_GBUFFER_ATTACHMENTS> _gBufferColorAttachments;
+	vk::RenderingAttachmentInfo _gBufferDepthAttachment;
+	std::array<vk::Format, NUM_GBUFFER_ATTACHMENTS> _colorAttachmentFormats;
+
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
-	vk::PipelineLayout _meshPipelineLayout;
-
-	AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
+	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
+	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);
 
 	vk::DeviceAddress get_buffer_device_address(vk::Buffer buffer);
 	BLASInput convert_to_blas_input(Mesh& mesh);
@@ -272,6 +301,7 @@ public:
 	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
 
 	Texture _skybox;
+	RenderObject _skyboxObject;
 
 	// create material set and add to the map
 	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
@@ -281,6 +311,8 @@ public:
 	Model* get_model(const std::string& name);
 
 	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count);
+	void draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline);
+	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
 
 	DeletionQueue _mainDeletionQueue;
 private:
@@ -288,6 +320,10 @@ private:
 	void init_vulkan();
 	void init_swapchain();
 	void init_commands();
+
+	void init_gbuffer_attachments();
+	void create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
+		vk::Image* image = nullptr);
 
 	void init_raytracing();
 
