@@ -5,6 +5,8 @@
 
 #define TLAS_SLOT 0U
 
+#define PI 3.1415926535897932384626433832795
+
 layout (location = 0) in vec2 inTexCoords;
 
 layout (location = 0) out vec4 outFragColor;
@@ -70,6 +72,78 @@ bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
 	return false;
 }
 
+// microfacet distribution
+float GGX(float dotNH, float roughness)
+{
+	float alpha = roughness * roughness;
+	float alphaSq = alpha * alpha;
+	
+	float denom = dotNH * dotNH * (alphaSq - 1.0) + 1.0;
+
+	return alphaSq / (PI * denom * denom);
+}
+
+// microfacet shadowing
+float SchlickSmithGGX(float dotNL, float dotNV, float roughness)
+{
+	float r = roughness + 1.0;
+	float k = r * r / 8.0;
+
+	float GL = dotNL / (dotNL * (1.0 - k) + k);
+	float GV = dotNV / (dotNV * (1.0 - k) + k);
+
+	return GL * GV;
+}
+
+vec3 FresnelSchlick(float cosTheta, float metallic, vec3 color)
+{
+	vec3 F0 = mix(vec3(0.04), color, metallic);
+	vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+
+	return F;
+}
+
+vec3 ContribBRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness, vec3 texColor, vec3 lightColor, vec3 radiance)
+{
+	vec3 H = normalize(V + L);
+	float dotNV = clamp(dot(N, V), 0.0, 1.0);
+	float dotNL = clamp(dot(N, L), 0.0, 1.0);
+	float dotLH = clamp(dot(L, H), 0.0, 1.0);
+	float dotNH = clamp(dot(N, H), 0.0, 1.0);
+
+	vec3 color = vec3(0.0);
+
+	if (dotNL > 0.0)
+	{
+		float rRoughness = max(0.05, roughness);
+
+		float D = GGX(dotNH, roughness);
+		float G = SchlickSmithGGX(dotNL, dotNV, roughness);
+		vec3 F = FresnelSchlick(dotNV, metallic, texColor);
+
+		vec3 kSpec = F;
+		vec3 kDiffuse = vec3(1.0) - kSpec;
+		kDiffuse *= 1.0 - metallic;
+
+		vec3 specular = D * F * G / (4.0 * dotNL * dotNV + 0.0001);
+
+		color += (kDiffuse * texColor / PI + specular) * dotNL * radiance;
+	}
+	return color;
+}
+
+vec3 ACESTonemap(vec3 color)
+{
+    float a = 2.51f;
+	float b = 0.03f;
+	float c = 2.43f;
+	float d = 0.59f;
+	float e = 0.14f;
+	return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+
+    return color;
+}
+
 void main()
 {
 	vec3 resColor = vec3(0.0, 0.0, 0.0);
@@ -79,6 +153,10 @@ void main()
 	vec4 albedo = texture(albedoTex, inTexCoords);
 	vec3 diffuseMaterial = albedo.rgb;
 	vec3 surfaceNormal = texture(normalTex, inTexCoords).rgb;
+	vec3 roughnessMetallic = texture(metallicRoughnessTex, inTexCoords).rgb;
+
+	float roughness = roughnessMetallic.g;
+	float metallic = roughnessMetallic.b;
 
 	vec3 camPosWorld = camSceneData.camData.invView[3].xyz;
 	vec3 viewDirection = normalize(camPosWorld - fragPosWorld);
@@ -89,26 +167,23 @@ void main()
 	// directional light
 	vec3 dirToLightDir = normalize(-camSceneData.dirLight.direction.xyz);
 
-	// diffuse
-	float diffuseDir = camSceneData.dirLight.direction.w * max(dot(surfaceNormal, dirToLightDir), 0.0);
-	vec3 dirDiffuse = diffuseDir * diffuseMaterial.rgb * camSceneData.dirLight.color.rgb;
-	
-	// specular
-	vec3 halfAngle = normalize(dirToLightDir + viewDirection);
-	float blinnTerm = clamp(dot(surfaceNormal, halfAngle), 0.0, 1.0);
-	blinnTerm = pow(blinnTerm, 32.0);
-	float specularDir = camSceneData.dirLight.direction.w * blinnTerm;
+	vec3 N = normalize(surfaceNormal);
+	vec3 V = viewDirection;
 
-	vec3 dirSpecular = vec3(specularDir);
+	vec3 Lo = vec3(0.0);
 
-	if (shadowRayHit(fragPosWorld.xyz, dirToLightDir, 0.01, 10000.0))
+	vec3 dirRadiance = camSceneData.dirLight.color.rgb * camSceneData.dirLight.direction.w;
+
+	vec3 dirContrib = ContribBRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial,
+		camSceneData.dirLight.color.rgb, dirRadiance);
+
+	if (shadowRayHit(fragPosWorld, dirToLightDir, 0.01, 10000.0))
 	{
-		dirDiffuse = vec3(0.0);
-		dirSpecular = vec3(0.0);
+		dirContrib = vec3(0.0);
 	}
 
-	resColor = dirDiffuse + dirSpecular;
-
+	Lo += dirContrib;
+	
 	for (int i = 0; i < NUM_LIGHTS; ++i)
 	{
 		if (camSceneData.pointLights[i].color.w < 0.01)
@@ -116,36 +191,25 @@ void main()
 			continue;
 		}
 
-		vec3 directionToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
-		vec3 vecToPointLight = camSceneData.pointLights[i].position.xyz - fragPosWorld.xyz;
-		float attenuation = 1.0 / dot(directionToPointLight, directionToPointLight);
+		vec3 dirToLight = camSceneData.pointLights[i].position.xyz - fragPosWorld;
+		vec3 L = normalize(dirToLight);
+		float distancePoint = length(dirToLight);
+		float attenuation = 1.0 / dot(dirToLight, dirToLight);
+		vec3 radiance = camSceneData.pointLights[i].color.rgb * camSceneData.pointLights[i].color.a * attenuation;
 
-		vec3 pointLightIntensity = camSceneData.pointLights[i].color.rgb * camSceneData.pointLights[i].color.a * attenuation;
-		directionToPointLight = normalize(directionToPointLight);
-
-		// diffuse
-		vec3 diffusePointLight = pointLightIntensity * max(dot(surfaceNormal, directionToPointLight), 0);
-
-		// specular
-		vec3 halfAngle = normalize(directionToPointLight + viewDirection);
-		float blinnTerm = clamp(dot(surfaceNormal, halfAngle), 0.0, 1.0);
-		blinnTerm = pow(blinnTerm, 32.0);
-		vec3 specularPointLight = pointLightIntensity * blinnTerm * 0.5;
-
-		// shadow ray
-		vec3 origin = fragPosWorld.xyz;
-		float tMin = 0.01;
-		float tMax = length(vecToPointLight);
-
-		if (shadowRayHit(origin, directionToPointLight, tMin, tMax))
+		vec3 contrib = ContribBRDF(L, V, N, metallic, roughness, diffuseMaterial, camSceneData.dirLight.color.rgb, radiance);
+		if (shadowRayHit(fragPosWorld, L, 0.01, distancePoint))
 		{
 			continue;
 		}
-
-		resColor += (diffusePointLight * diffuseMaterial.rgb + specularPointLight * 0.5);
+		Lo += contrib;
 	}
 
-	resColor += (ambientLight * diffuseMaterial.rgb);
+	resColor = ambientLight * diffuseMaterial.rgb;
+	resColor += Lo;
+
+	// apply tonemapping
+	resColor = ACESTonemap(resColor);
 
 	outFragColor = vec4(resColor, 1.0);
 }

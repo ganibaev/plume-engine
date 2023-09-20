@@ -283,7 +283,7 @@ void VulkanEngine::init_gbuffer_attachments()
 	// define attachment formats
 	vk::Format positionFormat = vk::Format::eR32G32B32A32Sfloat;
 	vk::Format normalFormat = vk::Format::eR32G32B32A32Sfloat;
-	vk::Format albedoFormat = vk::Format::eR8G8B8A8Unorm;
+	vk::Format albedoFormat = vk::Format::eR16G16B16A16Sfloat;
 	vk::Format metallicRoughnessFormat = vk::Format::eR32G32B32A32Sfloat;
 
 	// color attachments
@@ -1219,13 +1219,13 @@ void VulkanEngine::init_scene()
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	_skyboxObject.transformMatrix = meshScale;
 
-	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(-4.0f, -50.0f, -10.0f)), 1.0f);
+	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(0.0f, -30.0f, -10.0f)), 1.0f);
 	_sceneParameters.dirLight.color = glm::vec4{ 253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f, 1.0f };
-	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.05f };
+	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.1f };
 
 	PointLight centralLight = {};
 	centralLight.position = glm::vec4{ _centralLightPos, 0.0f };
-	centralLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 75.0f };
+	centralLight.color = glm::vec4{ 253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f, 300.0f };
 	_sceneParameters.pointLights[0] = centralLight;
 
 	// turning front and back lights off (w = 0.0) to better highlight central and directional light,
@@ -1556,10 +1556,6 @@ void VulkanEngine::draw()
 
 	cmd.endRendering();
 
-	//image_layout_transition(cmd, {}, vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite,
-	//	vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, _depthImage,
-	//	vk::ImageAspectFlagBits::eDepth, vk::PipelineStageFlagBits::eLateFragmentTests, vk::PipelineStageFlagBits::eEarlyFragmentTests);
-
 	cmd.beginRendering(skyboxRenderInfo);
 
 	draw_skybox(cmd, _skyboxObject);
@@ -1807,13 +1803,6 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			// object descriptor
 			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 1,
 				get_current_frame()._objectDescriptor, {});
-
-			// TLAS descriptor
-			/*if (object.materialSet->diffuseTextureSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 2 + TLAS_SLOT,
-					_tlasDescriptorSet, {});
-			}*/
 
 			// diffuse texture descriptor
 			if (object.materialSet->diffuseTextureSet)
