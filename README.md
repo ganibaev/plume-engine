@@ -5,7 +5,7 @@
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR, normal mapping, FXAA, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
+Currently it uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR, normal mapping, FXAA, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing (bindless texturing).
 
 The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the main light source in world space with arrow keys (RShift to move up and RCtrl to move down).
 
@@ -13,7 +13,7 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 * More advanced raytracing
 * IBL
-* GPU driven rendering
+* GPU driven rendering for meshes
 * ...etc.
 
 ## Running the code
