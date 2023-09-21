@@ -1,18 +1,17 @@
 # Plume Engine
 
-![plume-v0 12](https://github.com/ganibaev/plume-engine/assets/55918604/37a50e39-f295-4e89-8622-0fa541e898da)
-![plume-v0 12EXT](https://github.com/ganibaev/plume-engine/assets/55918604/f26d53a4-d841-4326-a4e6-40ea0932a6fc)
+![plume-v0 13](https://github.com/ganibaev/plume-engine/assets/55918604/047ae73f-af23-46d3-8ef9-f62027e21ce6)
+![plume-v0 13EXT](https://github.com/ganibaev/plume-engine/assets/55918604/8f807575-c23b-42d1-a824-a3c13aa93248)
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
 
-Currently it uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR, normal mapping, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
+Currently it uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR, normal mapping, FXAA, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing.
 
 The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the main light source in world space with arrow keys (RShift to move up and RCtrl to move down).
 
 ## Work in progress (loosely arranged in order of priority)
 
 * More advanced raytracing
-* FXAA
 * IBL
 * GPU driven rendering
 * ...etc.
