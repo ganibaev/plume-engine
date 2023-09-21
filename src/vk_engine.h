@@ -150,6 +150,7 @@ struct FrameData
 	AllocatedBuffer _objectBuffer;
 	vk::DescriptorSet _objectDescriptor;
 	vk::DescriptorSet _gBufferDescriptorSet;
+	vk::DescriptorSet _postprocessDescriptorSet;
 };
 
 struct DeletionQueue {
@@ -247,14 +248,17 @@ public:
 	vk::SwapchainKHR _swapchain;
 
 	std::vector<vk::Image> _swapchainImages;
+	std::vector<vk::Image> _intermediateImages;
 	vk::Format _swapchainImageFormat;
 
 	std::vector<vk::ImageView> _swapchainImageViews;
+	std::vector<vk::ImageView> _intermediateImageViews;
 
 	void image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 		vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
 		vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask);
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
+	void switch_intermediate_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 
 	vk::ImageView _depthImageView;
 	vk::Image _depthImage;
@@ -278,7 +282,11 @@ public:
 	vk::PipelineLayout _lightingPassPipelineLayout;
 	vk::Pipeline _lightingPassPipeline;
 
+	vk::PipelineLayout _postPassPipelineLayout;
+	vk::Pipeline _postPassPipeline;
+
 	vk::DescriptorSetLayout _gBufferSetLayout;
+	vk::DescriptorSetLayout _postprocessSetLayout;
 
 	std::array<vk::Image, NUM_GBUFFER_ATTACHMENTS> _gBufferImages;
 	std::array<vk::RenderingAttachmentInfo, NUM_GBUFFER_ATTACHMENTS> _gBufferColorAttachments;
@@ -311,7 +319,9 @@ public:
 	Model* get_model(const std::string& name);
 
 	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count);
-	void draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline);
+	void draw_lighting_pass(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline);
+	void draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline,
+		const std::vector<vk::DescriptorSet>& descriptorSets);
 	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
 
 	DeletionQueue _mainDeletionQueue;

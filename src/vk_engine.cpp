@@ -180,6 +180,27 @@ void VulkanEngine::init_swapchain()
 
 	_swapchainImageFormat = static_cast<vk::Format>(vkbSwapchain.image_format);
 
+	_intermediateImages.resize(_swapchainImages.size());
+	_intermediateImageViews.resize(_swapchainImageViews.size());
+
+	for (size_t i = 0; i < _intermediateImages.size(); ++i)
+	{
+		vk::ImageCreateInfo intermediateImageCreateInfo = vkinit::image_create_info(_swapchainImageFormat,
+			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled, _windowExtent3D, 1);
+		AllocatedImage intermediateImage = create_image(intermediateImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
+		_intermediateImages[i] = intermediateImage._image;
+
+		vk::ImageViewCreateInfo intermediateViewCreateInfo = vkinit::image_view_create_info(_swapchainImageFormat,
+			intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+		vk::ImageView intermediateImageView = _device.createImageView(intermediateViewCreateInfo);
+		_intermediateImageViews[i] = intermediateImageView;
+
+		_mainDeletionQueue.push_function([=]() {
+			vmaDestroyImage(_allocator, intermediateImage._image, intermediateImage._allocation);
+			_device.destroyImageView(intermediateImageView);
+		});
+	}
+
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroySwapchainKHR(_swapchain);
 	});
@@ -203,6 +224,40 @@ void VulkanEngine::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlag
 	transition.subresourceRange.layerCount = 1;
 
 	cmd.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, transition);
+}
+
+void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
+{
+	if (beforeRendering)
+	{
+		vk::ImageMemoryBarrier transferToWritable;
+		transferToWritable.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+		transferToWritable.oldLayout = vk::ImageLayout::eUndefined;
+		transferToWritable.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		transferToWritable.image = _intermediateImages[swapchainImageIndex];
+
+		transferToWritable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+		transferToWritable.subresourceRange.levelCount = 1;
+		transferToWritable.subresourceRange.layerCount = 1;
+
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+			{}, {}, {}, transferToWritable);
+	}
+	else
+	{
+		vk::ImageMemoryBarrier transferToSamplable;
+		transferToSamplable.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+		transferToSamplable.oldLayout = vk::ImageLayout::eUndefined;
+		transferToSamplable.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		transferToSamplable.image = _intermediateImages[swapchainImageIndex];
+
+		transferToSamplable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+		transferToSamplable.subresourceRange.levelCount = 1;
+		transferToSamplable.subresourceRange.layerCount = 1;
+
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader,
+			{}, {}, {}, transferToSamplable);
+	}
 }
 
 void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
@@ -557,6 +612,16 @@ void VulkanEngine::init_descriptors()
 
 	_gBufferSetLayout = _device.createDescriptorSetLayout(gBufferSetInfo);
 
+	// postprocess pass descriptor set
+	
+	vk::DescriptorSetLayoutBinding frameTextureBind = vkinit::descriptor_set_layout_binding(
+		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0);
+
+	vk::DescriptorSetLayoutCreateInfo frameTexSetInfo;
+	frameTexSetInfo.setBindings(frameTextureBind);
+
+	_postprocessSetLayout = _device.createDescriptorSetLayout(frameTexSetInfo);
+
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		constexpr int MAX_OBJECTS = 10000;
@@ -574,6 +639,12 @@ void VulkanEngine::init_descriptors()
 		gBufferSetAllocInfo.setSetLayouts(_gBufferSetLayout);
 
 		_frames[i]._gBufferDescriptorSet = _device.allocateDescriptorSets(gBufferSetAllocInfo)[0];
+
+		vk::DescriptorSetAllocateInfo postprocessSetAllocInfo;
+		postprocessSetAllocInfo.descriptorPool = _descriptorPool;
+		postprocessSetAllocInfo.setSetLayouts(_postprocessSetLayout);
+
+		_frames[i]._postprocessDescriptorSet = _device.allocateDescriptorSets(postprocessSetAllocInfo)[0];
 
 		// fill gbuffer descriptor sets
 		vk::SamplerCreateInfo gBufferSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
@@ -615,6 +686,13 @@ void VulkanEngine::init_descriptors()
 		objBufferInfo.offset = 0;
 		objBufferInfo.range = sizeof(GPUObjectData) * MAX_OBJECTS;
 
+		// use gbuffer sampler for postprocessing pass
+
+		vk::DescriptorImageInfo frameImageInfo;
+		frameImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		frameImageInfo.imageView = _intermediateImageViews[i];
+		frameImageInfo.sampler = gBufferSampler;
+
 		vk::WriteDescriptorSet positionWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
 			_frames[i]._gBufferDescriptorSet, &positionInfo, GBUFFER_POSITION_SLOT);
 		vk::WriteDescriptorSet normalWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
@@ -629,9 +707,12 @@ void VulkanEngine::init_descriptors()
 		
 		vk::WriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(
 			vk::DescriptorType::eStorageBuffer, _frames[i]._objectDescriptor, &objBufferInfo, 0);
+
+		vk::WriteDescriptorSet postprocessWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
+			_frames[i]._postprocessDescriptorSet, &frameImageInfo, 0);
 		
 		vk::WriteDescriptorSet setWrites[] = { positionWrite, normalWrite, albedoWrite, metallicRoughnessWrite,
-			camSceneWrite, objectWrite };
+			camSceneWrite, objectWrite, postprocessWrite };
 
 		_device.updateDescriptorSets(setWrites, {});
 
@@ -649,6 +730,7 @@ void VulkanEngine::init_descriptors()
 		_device.destroyDescriptorSetLayout(_textureSetLayout);
 		_device.destroyDescriptorSetLayout(_cubemapSetLayout);
 		_device.destroyDescriptorSetLayout(_gBufferSetLayout);
+		_device.destroyDescriptorSetLayout(_postprocessSetLayout);
 		_device.destroyDescriptorPool(_descriptorPool);
 	});
 }
@@ -903,6 +985,58 @@ void VulkanEngine::init_pipelines()
 	vk::Pipeline skyboxPipeline = pipelineBuilder.buildPipeline(_device);
 	create_material_set(skyboxPipeline, skyboxPipelineLayout, "skybox");
 
+	// init postprocessing pass pipeline
+
+	vk::ShaderModule postPassVertexShader;
+
+	if (!load_shader_module("../../../shaders/fxaa.vert.spv", &postPassVertexShader))
+	{
+		std::cout << "Error building FXAA vertex shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "FXAA vertex shader loaded successfully" << std::endl;
+	}
+
+	vk::ShaderModule postPassFragmentShader;
+
+	if (!load_shader_module("../../../shaders/fxaa.frag.spv", &postPassFragmentShader))
+	{
+		std::cout << "Error building FXAA fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "FXAA fragment shader loaded successfully" << std::endl;
+	}
+
+	vk::PipelineLayoutCreateInfo postPassPipelineLayoutInfo;
+
+	vk::DescriptorSetLayout postPassSetLayouts[] = {
+		_postprocessSetLayout
+	};
+
+	postPassPipelineLayoutInfo.setSetLayouts(postPassSetLayouts);
+
+	_postPassPipelineLayout = _device.createPipelineLayout(postPassPipelineLayoutInfo);
+
+	pipelineBuilder._pipelineLayout = _postPassPipelineLayout;
+
+	vk::PipelineRenderingCreateInfo postPassPipelineRenderingInfo;
+	postPassPipelineRenderingInfo.setColorAttachmentFormats(_swapchainImageFormat);
+	postPassPipelineRenderingInfo.setDepthAttachmentFormat(_depthFormat);
+
+	pipelineBuilder._renderingCreateInfo = postPassPipelineRenderingInfo;
+
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
+		postPassVertexShader));
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+		postPassFragmentShader));
+
+	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
+
+	_postPassPipeline = pipelineBuilder.buildPipeline(_device);
+
 	// shader modules are now built into the pipelines, we don't need them anymore
 
 	_device.destroyShaderModule(meshVertShader);
@@ -911,6 +1045,8 @@ void VulkanEngine::init_pipelines()
 	_device.destroyShaderModule(geometryPassFragmentShader);
 	_device.destroyShaderModule(lightingPassVertexShader);
 	_device.destroyShaderModule(lightingPassFragmentShader);
+	_device.destroyShaderModule(postPassVertexShader);
+	_device.destroyShaderModule(postPassFragmentShader);
 	_device.destroyShaderModule(skyboxVertShader);
 	_device.destroyShaderModule(skyboxFragShader);
 
@@ -918,10 +1054,12 @@ void VulkanEngine::init_pipelines()
 		_device.destroyPipeline(geometryPassPipeline);
 		_device.destroyPipeline(_lightingPassPipeline);
 		_device.destroyPipeline(skyboxPipeline);
+		_device.destroyPipeline(_postPassPipeline);
 		
 		_device.destroyPipelineLayout(texturedPipelineLayout);
 		_device.destroyPipelineLayout(skyboxPipelineLayout);
 		_device.destroyPipelineLayout(_lightingPassPipelineLayout);
+		_device.destroyPipelineLayout(_postPassPipelineLayout);
 	});
 }
 
@@ -1502,7 +1640,11 @@ void VulkanEngine::draw()
 	depthClear.depthStencil.depth = 1.0f;
 
 	// dynamic rendering
-	vk::RenderingAttachmentInfo colorAttachmentInfo = vkinit::rendering_attachment_info(_swapchainImageViews[swapchainImageIndex],
+	vk::RenderingAttachmentInfo intermediateColorAttachmentInfo = vkinit::rendering_attachment_info(
+		_intermediateImageViews[swapchainImageIndex], vk::ImageLayout::eColorAttachmentOptimal,
+		vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, clearValue);
+
+	vk::RenderingAttachmentInfo finalColorAttachmentInfo = vkinit::rendering_attachment_info(_swapchainImageViews[swapchainImageIndex],
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, clearValue);
 
 	vk::RenderingAttachmentInfo cubeDepthAttachmentInfo = vkinit::rendering_attachment_info(_depthImageView,
@@ -1511,7 +1653,7 @@ void VulkanEngine::draw()
 	vk::RenderingInfo skyboxRenderInfo;
 	skyboxRenderInfo.renderArea.extent = _windowExtent;
 	skyboxRenderInfo.layerCount = 1;
-	skyboxRenderInfo.setColorAttachments(colorAttachmentInfo);
+	skyboxRenderInfo.setColorAttachments(intermediateColorAttachmentInfo);
 	skyboxRenderInfo.setPDepthAttachment(&cubeDepthAttachmentInfo);
 
 	vk::RenderingAttachmentInfo lightingDepthAttachmentInfo = vkinit::rendering_attachment_info(_lightingDepthImageView,
@@ -1519,12 +1661,18 @@ void VulkanEngine::draw()
 
 	_lightingPassInfo.renderArea.extent = _windowExtent;
 	_lightingPassInfo.layerCount = 1;
-	_lightingPassInfo.setColorAttachments(colorAttachmentInfo);
+	_lightingPassInfo.setColorAttachments(intermediateColorAttachmentInfo);
 	_lightingPassInfo.setPDepthAttachment(&lightingDepthAttachmentInfo);
+
+	vk::RenderingInfo postPassRenderInfo;
+	postPassRenderInfo.renderArea.extent = _windowExtent;
+	postPassRenderInfo.layerCount = 1;
+	postPassRenderInfo.setColorAttachments(finalColorAttachmentInfo);
+	postPassRenderInfo.setPDepthAttachment(&lightingDepthAttachmentInfo);
 
 	std::sort(_renderables.begin(), _renderables.end());
 
-	switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
+	switch_intermediate_image_layout(cmd, swapchainImageIndex, true);
 
 	// ========================================   RENDERING   ========================================
 
@@ -1552,13 +1700,30 @@ void VulkanEngine::draw()
 
 	cmd.beginRendering(_lightingPassInfo);
 
-	draw_screen_quad(cmd, _lightingPassPipelineLayout, _lightingPassPipeline);
+	draw_lighting_pass(cmd, _lightingPassPipelineLayout, _lightingPassPipeline);
 
 	cmd.endRendering();
 
 	cmd.beginRendering(skyboxRenderInfo);
 
 	draw_skybox(cmd, _skyboxObject);
+
+	cmd.endRendering();
+
+	image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
+		vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImages[swapchainImageIndex],
+		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
+
+	switch_intermediate_image_layout(cmd, swapchainImageIndex, false);
+
+	switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
+
+	cmd.beginRendering(postPassRenderInfo);
+
+	std::vector<vk::DescriptorSet> postPassSets;
+	postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
+
+	draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
 
 	cmd.endRendering();
 
@@ -1858,7 +2023,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	}
 }
 
-void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline)
+void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
@@ -1866,7 +2031,7 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pi
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
-	GPUCameraData camData;
+	GPUCameraData camData = {};
 	camData.view = view;
 	camData.invView = glm::inverse(view);
 	camData.proj = projection;
@@ -1887,7 +2052,7 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pi
 
 	vmaUnmapMemory(_allocator, _camSceneBuffer._allocation);
 
-	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, _lightingPassPipeline);
+	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 
 	// scene & camera descriptor set
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
@@ -1900,6 +2065,19 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pi
 
 	// TLAS descriptor set
 	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 2, _tlasDescriptorSet, {});
+
+	cmd.draw(3, 1, 0, 0);
+}
+
+void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline,
+	const std::vector<vk::DescriptorSet>& descriptorSets)
+{
+	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+
+	for (size_t i = 0; i < descriptorSets.size(); ++i)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], {});
+	}
 
 	cmd.draw(3, 1, 0, 0);
 }
