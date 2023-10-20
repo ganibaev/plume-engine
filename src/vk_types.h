@@ -16,7 +16,8 @@ struct AllocatedBuffer
 enum class ImageType
 {
 	eTexture = 0,
-	eCubemap = 1
+	eCubemap = 1,
+	eRTXOutput = 2
 };
 
 struct AllocatedImage

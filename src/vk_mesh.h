@@ -26,8 +26,7 @@ struct Vertex
 	glm::vec3 normal;
 	glm::vec3 color;
 	glm::vec2 uv;
-	glm::uint materialID;
-	glm::vec4 tangent;
+	glm::vec3 tangent;
 	static VertexInputDescription get_vertex_description();
 };
 
@@ -37,6 +36,8 @@ struct Mesh
 	AllocatedBuffer _vertexBuffer;
 	std::vector<uint32_t> _indices;
 	AllocatedBuffer _indexBuffer;
+	int32_t _matIndex;
+	glm::vec3 _emittance{ 0.0f };
 };
 
 struct Scene;

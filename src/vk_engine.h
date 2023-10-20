@@ -91,12 +91,40 @@ struct RenderObject
 	}
 };
 
+struct RayPushConstants
+{
+	int frame;
+};
+
+enum class RenderMode
+{
+	eHybrid = 0,
+	ePathTracing = 1
+};
+
+enum RTXBindings
+{
+	eTlas = 0
+}; 
+
+enum RTXSets
+{
+	eGeneralRTX = 0,
+	eOutImage = 1,
+	eGlobal = 2,
+	eObjectData = 3,
+	eDiffuseTex = 4,
+	eMetallicTex = 5,
+	eRoughnessTex = 6,
+	eNormalMap = 7,
+	eSkybox = 8
+};
+
 struct MeshPushConstants
 {
 	glm::mat4 render_matrix;
 };
 
-constexpr uint32_t FRAME_OVERLAP = 3;
 constexpr uint32_t NUM_LIGHTS = 3;
 
 struct GPUCameraData
@@ -131,7 +159,11 @@ struct GPUSceneData
 struct GPUObjectData
 {
 	glm::mat4 modelMatrix;
-};
+	int32_t matIndex = 0;
+	uint64_t vertexBufferAddress = 0;
+	uint64_t indexBufferAddress = 0;
+	glm::vec3 emittance{ 0.0f };
+}; 
 
 struct Texture
 {
@@ -151,6 +183,8 @@ struct FrameData
 	vk::DescriptorSet _objectDescriptor;
 	vk::DescriptorSet _gBufferDescriptorSet;
 	vk::DescriptorSet _postprocessDescriptorSet;
+
+	vk::DescriptorSet _outImageRTX;
 };
 
 struct DeletionQueue {
@@ -175,12 +209,17 @@ struct DeletionQueue {
 class VulkanEngine {
 public:
 
-	bool _isInitialized{ false };
-	int _frameNumber{ 0 };
+	bool _isInitialized = false;
+	int _frameNumber = 0;
+	int _maxAccumFrames = 2000;
+
+	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
+
+	constexpr static uint32_t FRAME_OVERLAP = (_renderMode == RenderMode::ePathTracing) ? 1 : 3;
 
 	constexpr static float _camSpeed = 0.2f;
 
-	vk::Extent2D _windowExtent{ 2560 , 1440 };
+	vk::Extent2D _windowExtent{ 2560, 1440 };
 
 	vk::Extent3D _windowExtent3D{ _windowExtent, 1 };
 
@@ -229,9 +268,18 @@ public:
 	AllocatedBuffer _camSceneBuffer;
 
 	size_t pad_uniform_buffer_size(size_t originalSize);
+	vk::DeviceSize align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment);
 
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
+
+	vk::DescriptorPool _rtDescriptorPool;
+	vk::DescriptorSetLayout _rtSetLayout;
+	vk::DescriptorSetLayout _rtOutSetLayout;
+
+	vk::DescriptorSet _rtDescriptorSet;
+
+	RayPushConstants _rayConstants = {};
 
 	vk::DescriptorSetLayout _globalSetLayout;
 	vk::DescriptorSetLayout _tlasSetLayout;
@@ -239,6 +287,7 @@ public:
 	vk::DescriptorPool _descriptorPool;
 
 	vk::DescriptorSet _globalDescriptor;
+	std::vector<vk::DescriptorSet> _texDescriptorSets;
 
 	vk::DescriptorSet _tlasDescriptorSet;
 
@@ -293,6 +342,16 @@ public:
 	vk::RenderingAttachmentInfo _gBufferDepthAttachment;
 	std::array<vk::Format, NUM_GBUFFER_ATTACHMENTS> _colorAttachmentFormats;
 
+	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> _rtShaderGroups;
+	vk::PipelineLayout _rtPipelineLayout;
+	vk::Pipeline _rtPipeline;
+
+	AllocatedBuffer _rtSbtBuffer;
+	vk::StridedDeviceAddressRegionKHR _rgenRegion;
+	vk::StridedDeviceAddressRegionKHR _rmissRegion;
+	vk::StridedDeviceAddressRegionKHR _rchitRegion;
+	vk::StridedDeviceAddressRegionKHR _rcallRegion;
+
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
@@ -318,11 +377,15 @@ public:
 
 	Model* get_model(const std::string& name);
 
+	void upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count);
+
 	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count);
 	void draw_lighting_pass(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline);
 	void draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline,
 		const std::vector<vk::DescriptorSet>& descriptorSets);
 	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
+
+	void trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex);
 
 	DeletionQueue _mainDeletionQueue;
 private:
@@ -354,12 +417,80 @@ private:
 
 	void init_tlas();
 
+	void init_rt_descriptors();
+
+	void init_rt_pipeline();
+
+	void init_shader_binding_table();
+
 	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
 		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);
 
 	void load_skybox(Texture& skybox, const std::string& directory);
 
 	void load_images();
+
+	void reset_frame();
+
+	void update_frame();
+
+	template<typename T>
+	void upload_buffer(const std::vector<T>& buffer, AllocatedBuffer& targetBuffer, vk::BufferUsageFlags bufferUsage)
+	{
+		const size_t bufferSize = buffer.size() * sizeof(T);
+
+		vk::BufferCreateInfo stagingBufferInfo = {};
+		stagingBufferInfo.size = bufferSize;
+		stagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
+
+		// write on CPU, read on GPU
+		VmaAllocationCreateInfo vmaAllocInfo = {};
+		vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+		AllocatedBuffer stagingBuffer;
+
+		VkBufferCreateInfo cStagingBufferInfo = static_cast<VkBufferCreateInfo>(stagingBufferInfo);
+
+		VkBuffer cStagingBuffer;
+		VK_CHECK(vmaCreateBuffer(_allocator, &cStagingBufferInfo, &vmaAllocInfo, &cStagingBuffer,
+			&stagingBuffer._allocation, nullptr));
+		stagingBuffer._buffer = static_cast<vk::Buffer>(cStagingBuffer);
+
+		// copy data
+		void* data;
+		vmaMapMemory(_allocator, stagingBuffer._allocation, &data);
+
+		memcpy(data, buffer.data(), buffer.size() * sizeof(T));
+
+		vmaUnmapMemory(_allocator, stagingBuffer._allocation);
+
+		if (!targetBuffer._buffer)
+		{
+			// allocate buffer
+			vk::BufferCreateInfo bufferInfo = {};
+			bufferInfo.size = bufferSize;
+			bufferInfo.usage = bufferUsage;
+
+			vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+			VkBuffer cBuffer;
+
+			VK_CHECK(vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(bufferInfo)), &vmaAllocInfo,
+				&cBuffer, &targetBuffer._allocation, nullptr));
+
+			targetBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
+		}
+
+		immediate_submit([=](vk::CommandBuffer cmd) {
+			vk::BufferCopy copy;
+			copy.dstOffset = 0;
+			copy.srcOffset = 0;
+			copy.size = bufferSize;
+			cmd.copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
+		}, _uploadContext._commandBuffer);
+
+		vmaDestroyBuffer(_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+	}
 
 	void upload_mesh(Mesh& mesh);
 };

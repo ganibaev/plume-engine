@@ -21,6 +21,10 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/*.frag"
     "${PROJECT_SOURCE_DIR}/shaders/*.vert"
     "${PROJECT_SOURCE_DIR}/shaders/*.comp"
+    "${PROJECT_SOURCE_DIR}/shaders/*.rgen"
+    "${PROJECT_SOURCE_DIR}/shaders/*.rchit"
+    "${PROJECT_SOURCE_DIR}/shaders/*.rahit"
+    "${PROJECT_SOURCE_DIR}/shaders/*.rmiss"
     )
 
 ## iterate each shader

@@ -43,17 +43,10 @@ VertexInputDescription Vertex::get_vertex_description()
 	uvAttribute.format = vk::Format::eR32G32Sfloat;
 	uvAttribute.offset = offsetof(Vertex, uv);
 
-	// material ID at location 4
-	vk::VertexInputAttributeDescription materialIDAttribute = {};
-	materialIDAttribute.binding = 0;
-	materialIDAttribute.location = 4;
-	materialIDAttribute.format = vk::Format::eR32Uint;
-	materialIDAttribute.offset = offsetof(Vertex, materialID);
-
-	// tangents at location 5
+	// tangents at location 4
 	vk::VertexInputAttributeDescription tangentAttribute = {};
 	tangentAttribute.binding = 0;
-	tangentAttribute.location = 5;
+	tangentAttribute.location = 4;
 	tangentAttribute.format = vk::Format::eR32G32B32Sfloat;
 	tangentAttribute.offset = offsetof(Vertex, tangent);
 	
@@ -61,7 +54,6 @@ VertexInputDescription Vertex::get_vertex_description()
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);
 	description.attributes.push_back(uvAttribute);
-	description.attributes.push_back(materialIDAttribute);
 	description.attributes.push_back(tangentAttribute);
 	return description;
 }
@@ -133,6 +125,8 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 	if (mesh->mMaterialIndex >= 0)
 	{
 		material = scene.mMaterials[mesh->mMaterialIndex];
+		newMesh._matIndex = _parentScene->_matOffset + mesh->mMaterialIndex;
+		material->Get(AI_MATKEY_COLOR_EMISSIVE, newMesh._emittance);
 	}
 
 	for (size_t i = 0; i < mesh->mNumVertices; ++i)
@@ -150,7 +144,6 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 		newVertex.tangent.x = mesh->mTangents[i].x;
 		newVertex.tangent.y = mesh->mTangents[i].y;
 		newVertex.tangent.z = mesh->mTangents[i].z;
-		newVertex.tangent.w = 0.0f;
 
 		if (mesh->mTextureCoords[0])
 		{
@@ -162,10 +155,6 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 			newVertex.uv = glm::vec2(0.0f, 0.0f);
 		}
 
-		if (material)
-		{
-			newVertex.materialID = static_cast<glm::uint>(_parentScene->_matOffset + mesh->mMaterialIndex);
-		}
 		newVertex.color = newVertex.normal;
 
 		newMesh._vertices.push_back(newVertex);

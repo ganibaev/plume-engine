@@ -63,7 +63,16 @@ void VulkanEngine::init()
 
 	init_tlas();
 
-	// everything went fine
+	if (_renderMode == RenderMode::ePathTracing)
+	{
+		init_rt_descriptors();
+
+		init_rt_pipeline();
+
+		init_shader_binding_table();
+	}
+
+	// everything went well
 	_isInitialized = true;
 }
 
@@ -93,6 +102,10 @@ void VulkanEngine::init_vulkan()
 	// use VkBootstrap to select a GPU
 	// the GPU should be able to write to SDL surface and support Vulkan 1.3
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
+
+	vk::PhysicalDeviceFeatures miscFeatures;
+	miscFeatures.shaderInt64 = VK_TRUE;
+
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 3)
 		.set_surface(_surface)
@@ -100,6 +113,8 @@ void VulkanEngine::init_vulkan()
 		.add_required_extension("VK_KHR_ray_tracing_pipeline")
 		.add_required_extension("VK_KHR_ray_query")
 		.add_required_extension("VK_KHR_deferred_host_operations")
+		.add_required_extension("VK_KHR_shader_clock")
+		.set_required_features(miscFeatures)
 		.select()
 		.value();
 
@@ -126,10 +141,15 @@ void VulkanEngine::init_vulkan()
 	addressFeatures.bufferDeviceAddress = VK_TRUE;
 	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures;
 	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+	vk::PhysicalDeviceScalarBlockLayoutFeatures scalarBlockFeatures;
+	scalarBlockFeatures.scalarBlockLayout = VK_TRUE;
+	vk::PhysicalDeviceShaderClockFeaturesKHR clockFeatures;
+	clockFeatures.shaderDeviceClock = VK_TRUE;
+	clockFeatures.shaderSubgroupClock = VK_TRUE;
 	
 	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures)
-		.add_pNext(&accelFeatures).add_pNext(&rayQueryFeatures).add_pNext(&rtPipelineFeatures)
-		.add_pNext(&addressFeatures).add_pNext(&dynamicRenderingFeatures).build().value();
+		.add_pNext(&accelFeatures).add_pNext(&rayQueryFeatures).add_pNext(&rtPipelineFeatures).add_pNext(&addressFeatures)
+		.add_pNext(&dynamicRenderingFeatures).add_pNext(&scalarBlockFeatures).add_pNext(&clockFeatures).build().value();
 
 	// get vk::Device handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
@@ -159,6 +179,7 @@ void VulkanEngine::init_swapchain()
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		.use_default_format_selection()
+		.set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) // set vsync mode
 		.set_desired_extent(_windowExtent.width, _windowExtent.height)
 		.build()
@@ -180,18 +201,39 @@ void VulkanEngine::init_swapchain()
 
 	_swapchainImageFormat = static_cast<vk::Format>(vkbSwapchain.image_format);
 
-	_intermediateImages.resize(_swapchainImages.size());
-	_intermediateImageViews.resize(_swapchainImageViews.size());
+	_intermediateImages.resize(FRAME_OVERLAP);
+	_intermediateImageViews.resize(FRAME_OVERLAP);
 
 	for (size_t i = 0; i < _intermediateImages.size(); ++i)
 	{
-		vk::ImageCreateInfo intermediateImageCreateInfo = vkinit::image_create_info(_swapchainImageFormat,
-			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled, _windowExtent3D, 1);
+		vk::ImageCreateInfo intermediateImageCreateInfo;
+
+		if (_renderMode == RenderMode::ePathTracing)
+		{
+			intermediateImageCreateInfo = vkinit::image_create_info(vk::Format::eR16G16B16A16Sfloat,
+				vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
+				_windowExtent3D, 1, vk::SampleCountFlagBits::e1, ImageType::eRTXOutput);
+		}
+		else
+		{
+			intermediateImageCreateInfo = vkinit::image_create_info(_swapchainImageFormat,
+				vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled, _windowExtent3D, 1);
+		}
 		AllocatedImage intermediateImage = create_image(intermediateImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
 		_intermediateImages[i] = intermediateImage._image;
 
-		vk::ImageViewCreateInfo intermediateViewCreateInfo = vkinit::image_view_create_info(_swapchainImageFormat,
-			intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+		vk::ImageViewCreateInfo intermediateViewCreateInfo;
+		if (_renderMode == RenderMode::ePathTracing)
+		{
+			intermediateViewCreateInfo = vkinit::image_view_create_info(vk::Format::eR16G16B16A16Sfloat,
+				intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+		}
+		else
+		{
+			intermediateViewCreateInfo = vkinit::image_view_create_info(_swapchainImageFormat,
+				intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+		}
+
 		vk::ImageView intermediateImageView = _device.createImageView(intermediateViewCreateInfo);
 		_intermediateImageViews[i] = intermediateImageView;
 
@@ -231,32 +273,52 @@ void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, uint3
 	if (beforeRendering)
 	{
 		vk::ImageMemoryBarrier transferToWritable;
-		transferToWritable.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+		transferToWritable.dstAccessMask = (_renderMode == RenderMode::eHybrid) ? vk::AccessFlagBits::eColorAttachmentWrite :
+			vk::AccessFlagBits::eShaderWrite;
 		transferToWritable.oldLayout = vk::ImageLayout::eUndefined;
-		transferToWritable.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		transferToWritable.newLayout = (_renderMode == RenderMode::eHybrid) ? vk::ImageLayout::eColorAttachmentOptimal : 
+			vk::ImageLayout::eGeneral;
 		transferToWritable.image = _intermediateImages[swapchainImageIndex];
 
 		transferToWritable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
 		transferToWritable.subresourceRange.levelCount = 1;
 		transferToWritable.subresourceRange.layerCount = 1;
 
-		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-			{}, {}, {}, transferToWritable);
+		if (_renderMode == RenderMode::eHybrid)
+		{
+			cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+				{}, {}, {}, transferToWritable);
+		}
+		else
+		{
+			cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+				{}, {}, {}, transferToWritable);
+		}
 	}
 	else
 	{
 		vk::ImageMemoryBarrier transferToSamplable;
-		transferToSamplable.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+		transferToSamplable.srcAccessMask = (_renderMode == RenderMode::eHybrid) ? vk::AccessFlagBits::eColorAttachmentWrite :
+			vk::AccessFlagBits::eShaderWrite;
 		transferToSamplable.oldLayout = vk::ImageLayout::eUndefined;
-		transferToSamplable.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		transferToSamplable.newLayout = (_renderMode == RenderMode::eHybrid) ? vk::ImageLayout::eShaderReadOnlyOptimal : 
+			vk::ImageLayout::eGeneral;
 		transferToSamplable.image = _intermediateImages[swapchainImageIndex];
 
 		transferToSamplable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
 		transferToSamplable.subresourceRange.levelCount = 1;
 		transferToSamplable.subresourceRange.layerCount = 1;
 
-		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader,
-			{}, {}, {}, transferToSamplable);
+		if (_renderMode == RenderMode::eHybrid)
+		{
+			cmd.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader,
+				{}, {}, {}, transferToSamplable);
+		}
+		else
+		{
+			cmd.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR, vk::PipelineStageFlagBits::eTopOfPipe,
+				{}, {}, {}, transferToSamplable);
+		}
 	}
 }
 
@@ -281,7 +343,8 @@ void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t
 	{
 		vk::ImageMemoryBarrier transferToPresentable;
 		transferToPresentable.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
-		transferToPresentable.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		transferToPresentable.oldLayout = _renderMode == RenderMode::ePathTracing ? vk::ImageLayout::eTransferDstOptimal
+			: vk::ImageLayout::eColorAttachmentOptimal;
 		transferToPresentable.newLayout = vk::ImageLayout::ePresentSrcKHR;
 		transferToPresentable.image = _swapchainImages[swapchainImageIndex];
 
@@ -532,8 +595,8 @@ void VulkanEngine::init_descriptors()
 	_tlasDescriptorSet = _device.allocateDescriptorSets(tlasSetAllocInfo)[0];
 
 	vk::DescriptorSetLayoutBinding camSceneBufferBinding = 
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eUniformBufferDynamic,
-			vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0);
+		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eUniformBufferDynamic, vk::ShaderStageFlagBits::eVertex |
+			vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR, 0);
 
 	vk::DescriptorSetLayoutBinding bindings[] = { camSceneBufferBinding };
 
@@ -543,8 +606,9 @@ void VulkanEngine::init_descriptors()
 
 	_globalSetLayout = _device.createDescriptorSetLayout(setInfo);
 
-	vk::DescriptorSetLayoutBinding objectBufferBinding = 
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eVertex, 0);
+	vk::DescriptorSetLayoutBinding objectBufferBinding = vkinit::descriptor_set_layout_binding(
+		vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, 0);
 	
 	vk::DescriptorSetLayoutCreateInfo objSetInfo = {};
 	objSetInfo.bindingCount = 1;
@@ -566,7 +630,8 @@ void VulkanEngine::init_descriptors()
 	Model* scene = get_model("scene");
 
 	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler,
-		vk::ShaderStageFlagBits::eFragment, 0, static_cast<uint32_t>(_scene._diffuseTexNames.size()));
+		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, 0,
+		static_cast<uint32_t>(_scene._diffuseTexNames.size()));
 
 	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
 
@@ -1163,6 +1228,333 @@ void VulkanEngine::init_tlas()
 	_device.updateDescriptorSets(descWrite, {});
 }
 
+void VulkanEngine::init_rt_descriptors()
+{
+	// binding 0 reserved for TLAS
+	vk::DescriptorSetLayoutBinding tlasBinding =
+		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eAccelerationStructureKHR, vk::ShaderStageFlagBits::eRaygenKHR | 
+			vk::ShaderStageFlagBits::eClosestHitKHR, 0);
+
+	vk::DescriptorSetLayoutBinding outImageBinding = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eStorageImage,
+		vk::ShaderStageFlagBits::eRaygenKHR, 0);
+
+	std::vector<vk::DescriptorPoolSize> poolSizes = {
+		{ vk::DescriptorType::eStorageImage, 10 },
+		{ vk::DescriptorType::eAccelerationStructureKHR, 5 }
+	};
+
+	vk::DescriptorPoolCreateInfo rtDescPoolInfo;
+	rtDescPoolInfo.setMaxSets(50);
+	rtDescPoolInfo.setPoolSizes(poolSizes);
+
+	_rtDescriptorPool = _device.createDescriptorPool(rtDescPoolInfo);
+
+	std::vector<vk::DescriptorSetLayoutBinding> rtSetBindings =
+	{
+		tlasBinding
+	};
+
+	std::vector<vk::DescriptorSetLayoutBinding> outImageSetBindings =
+	{
+		outImageBinding
+	};
+
+	vk::DescriptorSetLayoutCreateInfo rtLayoutInfo;
+	rtLayoutInfo.setBindings(rtSetBindings);
+
+	vk::DescriptorSetLayoutCreateInfo outLayoutInfo;
+	outLayoutInfo.setBindings(outImageSetBindings);
+
+	_rtSetLayout = _device.createDescriptorSetLayout(rtLayoutInfo);
+	_rtOutSetLayout = _device.createDescriptorSetLayout(outLayoutInfo);
+
+	std::vector<vk::DescriptorSetLayout> rtSetLayouts = {
+		_rtSetLayout
+	};
+
+	for (int i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		rtSetLayouts.push_back(_rtOutSetLayout);
+	}
+
+	vk::DescriptorSetAllocateInfo rtSetAllocInfo;
+	rtSetAllocInfo.setDescriptorPool(_rtDescriptorPool);
+	rtSetAllocInfo.setSetLayouts(rtSetLayouts);
+
+	auto allocatedSets = _device.allocateDescriptorSets(rtSetAllocInfo);
+
+	_rtDescriptorSet = allocatedSets[0];
+
+	for (uint32_t i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		_frames[i]._outImageRTX = allocatedSets[1 + i];
+	}
+
+	vk::WriteDescriptorSetAccelerationStructureKHR tlasWriteDescInfo;
+	tlasWriteDescInfo.setAccelerationStructures(_topLevelAS._structure);
+
+	vk::WriteDescriptorSet tlasWrite;
+	tlasWrite.dstBinding = RTXBindings::eTlas;
+	tlasWrite.dstSet = _rtDescriptorSet;
+	tlasWrite.descriptorCount = 1;
+	tlasWrite.descriptorType = vk::DescriptorType::eAccelerationStructureKHR;
+	tlasWrite.pNext = &tlasWriteDescInfo;
+
+	_device.updateDescriptorSets(tlasWrite, {});
+
+	for (int i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		vk::DescriptorImageInfo outImageDescInfo;
+		outImageDescInfo.imageLayout = vk::ImageLayout::eGeneral;
+		outImageDescInfo.imageView = _intermediateImageViews[i];
+
+		vk::WriteDescriptorSet outImageWrite;
+		outImageWrite.dstBinding = 0;
+		outImageWrite.dstSet = _frames[i]._outImageRTX;
+		outImageWrite.descriptorCount = 1;
+		outImageWrite.descriptorType = vk::DescriptorType::eStorageImage;
+		outImageWrite.setImageInfo(outImageDescInfo);
+
+		_device.updateDescriptorSets(outImageWrite, {});
+	}
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroyDescriptorSetLayout(_rtSetLayout);
+		_device.destroyDescriptorSetLayout(_rtOutSetLayout);
+		_device.destroyDescriptorPool(_rtDescriptorPool);
+	});
+}
+
+void VulkanEngine::init_rt_pipeline()
+{
+	enum StageIndices
+	{
+		eRaygen,
+		eMiss,
+		eShadowMiss,
+		eClosestHit,
+		eAnyHit,
+		eShaderGroupCount
+	};
+
+	std::array<vk::PipelineShaderStageCreateInfo, StageIndices::eShaderGroupCount> stages;
+
+	vk::PipelineShaderStageCreateInfo stage;
+	stage.pName = "main";
+
+	// Raygen
+	vk::ShaderModule pathTracingRayGen;
+	if (!load_shader_module("../../../shaders/path_tracing.rgen.spv", &pathTracingRayGen))
+	{
+		std::cout << "Error building path tracing raygen shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Path tracing raygen shader loaded successfully" << std::endl;
+	}
+	stage.module = pathTracingRayGen;
+	stage.stage = vk::ShaderStageFlagBits::eRaygenKHR;
+	stages[StageIndices::eRaygen] = stage;
+
+	// Miss
+	vk::ShaderModule pathTracingMiss;
+	if (!load_shader_module("../../../shaders/path_tracing.rmiss.spv", &pathTracingMiss))
+	{
+		std::cout << "Error building path tracing miss shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Path tracing miss shader loaded successfully" << std::endl;
+	}
+	stage.module = pathTracingMiss;
+	stage.stage = vk::ShaderStageFlagBits::eMissKHR;
+	stages[StageIndices::eMiss] = stage;
+
+	// Shadow miss
+	vk::ShaderModule shadowMiss;
+	if (!load_shader_module("../../../shaders/trace_shadow.rmiss.spv", &shadowMiss))
+	{
+		std::cout << "Error building shadow miss shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Shadow miss shader loaded successfully" << std::endl;
+	}
+	stage.module = shadowMiss;
+	stage.stage = vk::ShaderStageFlagBits::eMissKHR;
+	stages[StageIndices::eShadowMiss] = stage;
+
+	// Closest hit
+	vk::ShaderModule pathTracingClosestHit;
+	if (!load_shader_module("../../../shaders/path_tracing.rchit.spv", &pathTracingClosestHit))
+	{
+		std::cout << "Error building path tracing closest hit shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Path tracing closest hit shader loaded successfully" << std::endl;
+	}
+	stage.module = pathTracingClosestHit;
+	stage.stage = vk::ShaderStageFlagBits::eClosestHitKHR;
+	stages[StageIndices::eClosestHit] = stage;
+
+	// Any hit
+	vk::ShaderModule pathTracingAnyHit;
+	if (!load_shader_module("../../../shaders/path_tracing.rahit.spv", &pathTracingAnyHit))
+	{
+		std::cout << "Error building path tracing any hit shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Path tracing any hit shader loaded successfully" << std::endl;
+	}
+	stage.module = pathTracingAnyHit;
+	stage.stage = vk::ShaderStageFlagBits::eAnyHitKHR;
+	stages[StageIndices::eAnyHit] = stage;
+
+	// Define shader groups
+	vk::RayTracingShaderGroupCreateInfoKHR shaderGroupInfo;
+	shaderGroupInfo.anyHitShader = VK_SHADER_UNUSED_KHR;
+	shaderGroupInfo.closestHitShader = VK_SHADER_UNUSED_KHR;
+	shaderGroupInfo.generalShader = VK_SHADER_UNUSED_KHR;
+	shaderGroupInfo.intersectionShader = VK_SHADER_UNUSED_KHR;
+
+	// Raygen
+	shaderGroupInfo.type = vk::RayTracingShaderGroupTypeKHR::eGeneral;
+	shaderGroupInfo.generalShader = StageIndices::eRaygen;
+	_rtShaderGroups.push_back(shaderGroupInfo);
+
+	// Miss
+	shaderGroupInfo.type = vk::RayTracingShaderGroupTypeKHR::eGeneral;
+	shaderGroupInfo.generalShader = StageIndices::eMiss;
+	_rtShaderGroups.push_back(shaderGroupInfo);
+
+	// Shadow miss
+	shaderGroupInfo.type = vk::RayTracingShaderGroupTypeKHR::eGeneral;
+	shaderGroupInfo.generalShader = StageIndices::eShadowMiss;
+	_rtShaderGroups.push_back(shaderGroupInfo);
+
+	// Closest hit and any hit
+	shaderGroupInfo.type = vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup;
+	shaderGroupInfo.generalShader = VK_SHADER_UNUSED_KHR;
+	shaderGroupInfo.closestHitShader = StageIndices::eClosestHit;
+	shaderGroupInfo.anyHitShader = StageIndices::eAnyHit;
+	_rtShaderGroups.push_back(shaderGroupInfo);
+
+	vk::PipelineLayoutCreateInfo rtPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+
+	vk::PushConstantRange rayPushConstants;
+	rayPushConstants.offset = 0;
+	rayPushConstants.size = sizeof(RayPushConstants);
+	rayPushConstants.stageFlags = vk::ShaderStageFlagBits::eRaygenKHR;
+
+	rtPipelineLayoutInfo.setPushConstantRanges(rayPushConstants);
+
+	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = {
+		_rtSetLayout, _rtOutSetLayout, _globalSetLayout, _objectSetLayout, _textureSetLayout,
+		_textureSetLayout, _textureSetLayout, _textureSetLayout
+	};
+	rtPipelineLayoutInfo.setSetLayouts(rtPipelineSetLayouts);
+	_rtPipelineLayout = _device.createPipelineLayout(rtPipelineLayoutInfo);
+
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroyPipelineLayout(_rtPipelineLayout);
+	});
+
+	vk::RayTracingPipelineCreateInfoKHR rtPipelineInfo;
+	rtPipelineInfo.setStages(stages);
+	rtPipelineInfo.setGroups(_rtShaderGroups);
+	rtPipelineInfo.maxPipelineRayRecursionDepth = 2;
+	rtPipelineInfo.layout = _rtPipelineLayout;
+
+	if (_rtProperties.maxRayRecursionDepth <= 1) {
+		std::cout << "Device doesn't support ray recursion (maxRayRecursionDepth <= 1)" << std::endl;
+		abort();
+	}
+
+	auto rtPipelineResVal = _device.createRayTracingPipelineKHR({}, {}, rtPipelineInfo);
+	VK_CHECK(rtPipelineResVal.result);
+	_rtPipeline = rtPipelineResVal.value;
+
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroyPipeline(_rtPipeline);
+	});
+
+	for (auto& stage : stages)
+	{
+		_device.destroyShaderModule(stage.module);
+	}
+}
+
+void VulkanEngine::init_shader_binding_table()
+{
+	uint32_t rmissCount = 2;
+	uint32_t rchitCount = 1;
+	uint32_t handleCount = 1 + rmissCount + rchitCount;
+	uint32_t handleSize = _rtProperties.shaderGroupHandleSize;
+
+	vk::DeviceSize alignedHandleSize = align_up(handleSize, _rtProperties.shaderGroupHandleAlignment);
+
+	_rgenRegion.stride = align_up(alignedHandleSize, _rtProperties.shaderGroupBaseAlignment);
+	_rgenRegion.size = _rgenRegion.stride; // for raygen size == stride
+	_rmissRegion.stride = alignedHandleSize;
+	_rmissRegion.size = align_up(rmissCount * alignedHandleSize, _rtProperties.shaderGroupBaseAlignment);
+	_rchitRegion.stride = alignedHandleSize;
+	_rchitRegion.size = align_up(rchitCount * alignedHandleSize, _rtProperties.shaderGroupBaseAlignment);
+
+	// get shader group handles
+	uint32_t dataSize = handleCount * handleSize;
+	std::vector<uint8_t> handles(dataSize);
+	VK_CHECK(_device.getRayTracingShaderGroupHandlesKHR(_rtPipeline, 0, handleCount, dataSize, handles.data()));
+
+	vk::DeviceSize sbtSize = _rgenRegion.size + _rmissRegion.size + _rchitRegion.size + _rcallRegion.size;
+	_rtSbtBuffer = create_buffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst | 
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eShaderBindingTableKHR, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+	// find shader group device addresses
+	vk::BufferDeviceAddressInfo addressInfo;
+	addressInfo.buffer = _rtSbtBuffer._buffer;
+	vk::DeviceAddress sbtAddress = _device.getBufferAddress(addressInfo);
+	_rgenRegion.deviceAddress = sbtAddress;
+	_rmissRegion.deviceAddress = sbtAddress + _rgenRegion.size;
+	_rchitRegion.deviceAddress = sbtAddress + _rgenRegion.size + _rmissRegion.size;
+
+	// helper lambda to retrieve ith handle data
+	auto getHandle = [&](int i) {
+		return handles.data() + i * handleSize;
+	};
+
+	// upload the SBT
+	std::vector<uint8_t> sbtBufferRaw(sbtSize);
+	uint8_t* pData = sbtBufferRaw.data();
+	uint32_t handleIndex = 0;
+	
+	// copy raygen region
+	std::memcpy(pData, getHandle(handleIndex++), handleSize);
+
+	// copy miss region
+	pData = sbtBufferRaw.data() + _rgenRegion.size;
+	for (uint32_t c = 0; c < rmissCount; ++c)
+	{
+		std::memcpy(pData, getHandle(handleIndex++), handleSize);
+		pData += _rmissRegion.stride;
+	}
+
+	// copy hit region
+	pData = sbtBufferRaw.data() + _rgenRegion.size + _rmissRegion.size;
+	for (uint32_t c = 0; c < rchitCount; ++c)
+	{
+		std::memcpy(pData, getHandle(handleIndex++), handleSize);
+		pData += _rchitRegion.stride;
+	}
+
+	upload_buffer(sbtBufferRaw, _rtSbtBuffer, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eShaderBindingTableKHR);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _rtSbtBuffer._buffer, _rtSbtBuffer._allocation);
+	});
+}
+
 void VulkanEngine::load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
 	uint32_t texSlot, bool generateMipmaps/* = true */, vk::Format format/* = vk::Format::eR8G8B8A8Srgb */)
 {
@@ -1291,6 +1683,32 @@ void VulkanEngine::load_images()
 	});
 }
 
+void VulkanEngine::reset_frame()
+{
+	_rayConstants.frame = -1;
+}
+
+void VulkanEngine::update_frame()
+{
+	static glm::mat4 refCamMatrix = {};
+	static float refFov = _camera._zoom;
+	static glm::vec3 refPosition{ 0.0f };
+
+	const glm::mat4 m = _camera.get_view_matrix();
+	const float fov = _camera._zoom;
+	const glm::vec3 position = _camera._position;
+
+	if (std::memcmp(&refCamMatrix[0][0], &m[0][0], sizeof(glm::mat4)) != 0 || refFov != fov || 
+		std::memcmp(&refPosition[0], &position[0], sizeof(glm::vec3)) != 0)
+	{
+		reset_frame();
+		refCamMatrix = m;
+		refFov = fov;
+		refPosition = position;
+	}
+	++_rayConstants.frame;
+}
+
 void VulkanEngine::fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>& texBufferInfos,
 	const std::vector<std::string>& texNames, Model* model, uint32_t texSlot)
 {
@@ -1406,12 +1824,12 @@ void VulkanEngine::init_scene()
 	allocInfo.setDescriptorPool(_descriptorPool);
 	allocInfo.setSetLayouts(textureSetLayouts);
 
-	std::vector<vk::DescriptorSet> texDescriptorSets = _device.allocateDescriptorSets(allocInfo);
+	_texDescriptorSets = _device.allocateDescriptorSets(allocInfo);
 
-	texturedMatSet->diffuseTextureSet = texDescriptorSets[DIFFUSE_TEX_SLOT];
-	texturedMatSet->metallicTextureSet = texDescriptorSets[METALLIC_TEX_SLOT];
-	texturedMatSet->roughnessTextureSet = texDescriptorSets[ROUGHNESS_TEX_SLOT];
-	texturedMatSet->normalMapSet = texDescriptorSets[NORMAL_MAP_SLOT];
+	texturedMatSet->diffuseTextureSet = _texDescriptorSets[DIFFUSE_TEX_SLOT];
+	texturedMatSet->metallicTextureSet = _texDescriptorSets[METALLIC_TEX_SLOT];
+	texturedMatSet->roughnessTextureSet = _texDescriptorSets[ROUGHNESS_TEX_SLOT];
+	texturedMatSet->normalMapSet = _texDescriptorSets[NORMAL_MAP_SLOT];
 
 	vk::DescriptorSetAllocateInfo skyboxAllocInfo = {};
 	skyboxAllocInfo.setDescriptorPool(_descriptorPool);
@@ -1469,7 +1887,7 @@ void VulkanEngine::init_scene()
 
 	textureSetWrites[NORMAL_MAP_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
 		texturedMatSet->normalMapSet, normalMapImageBufferInfos.data(), 0, static_cast<uint32_t>(normalMapImageBufferInfos.size()));
-	
+
 	_device.updateDescriptorSets(textureSetWrites, {});
 
 	vk::WriteDescriptorSet skyboxSetWrite;
@@ -1482,103 +1900,17 @@ void VulkanEngine::init_scene()
 
 void VulkanEngine::upload_mesh(Mesh& mesh)
 {
-	const size_t bufferSize = mesh._vertices.size() * sizeof(Vertex);
+	vk::BufferUsageFlags vertexBufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+		vk::BufferUsageFlagBits::eStorageBuffer;
 
-	vk::BufferCreateInfo vertexStagingBufferInfo = {};
-	vertexStagingBufferInfo.size = bufferSize;
-	vertexStagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
-	
-	// write on CPU, read on GPU
-	VmaAllocationCreateInfo vmaAllocInfo = {};
-	vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+	upload_buffer(mesh._vertices, mesh._vertexBuffer, vertexBufferUsage);
 
-	AllocatedBuffer vertexStagingBuffer;
-	
-	VkBufferCreateInfo cVertexStagingBufferInfo = static_cast<VkBufferCreateInfo>(vertexStagingBufferInfo);
+	vk::BufferUsageFlags indexBufferUsage = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+		vk::BufferUsageFlagBits::eStorageBuffer;
 
-	VkBuffer cVertexStagingBuffer;
-	VK_CHECK( vmaCreateBuffer(_allocator, &cVertexStagingBufferInfo, &vmaAllocInfo, &cVertexStagingBuffer,
-		&vertexStagingBuffer._allocation, nullptr) );
-	vertexStagingBuffer._buffer = static_cast<vk::Buffer>(cVertexStagingBuffer);
-
-	// copy vertex data
-	void* data;
-	vmaMapMemory(_allocator, vertexStagingBuffer._allocation, &data);
-
-	memcpy(data, mesh._vertices.data(), mesh._vertices.size() * sizeof(Vertex));
-
-	vmaUnmapMemory(_allocator, vertexStagingBuffer._allocation);
-
-	// allocate Vertex Buffer
-	vk::BufferCreateInfo vertexBufferInfo = {};
-	vertexBufferInfo.size = bufferSize;
-	vertexBufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
-		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
-	
-	vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-	VkBuffer cVertexBuffer;
-
-	VK_CHECK( vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(vertexBufferInfo)), &vmaAllocInfo,
-		&cVertexBuffer, &mesh._vertexBuffer._allocation, nullptr) );
-
-	mesh._vertexBuffer._buffer = static_cast<vk::Buffer>(cVertexBuffer);
-
-	immediate_submit([=](vk::CommandBuffer cmd) {
-		vk::BufferCopy copy;
-		copy.dstOffset = 0;
-		copy.srcOffset = 0;
-		copy.size = bufferSize;
-		cmd.copyBuffer(vertexStagingBuffer._buffer, mesh._vertexBuffer._buffer, copy);
-	}, _uploadContext._commandBuffer);
-
-	// now do the same with the Index buffer
-
-	vk::BufferCreateInfo indexStagingBufferInfo = {};
-	indexStagingBufferInfo.size = mesh._indices.size() * sizeof(uint32_t);
-	indexStagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
-
-	// write on CPU, read on GPU
-	vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-	AllocatedBuffer indexStagingBuffer;
-
-	VkBufferCreateInfo cIndexStagingBufferInfo = static_cast<VkBufferCreateInfo>(indexStagingBufferInfo);
-
-	VkBuffer cIndexStagingBuffer;
-	VK_CHECK( vmaCreateBuffer(_allocator, &cIndexStagingBufferInfo, &vmaAllocInfo, &cIndexStagingBuffer,
-		&indexStagingBuffer._allocation, nullptr) );
-	indexStagingBuffer._buffer = static_cast<vk::Buffer>(cIndexStagingBuffer);
-
-	// copy index data
-	void* indData;
-	vmaMapMemory(_allocator, indexStagingBuffer._allocation, &indData);
-
-	memcpy(indData, mesh._indices.data(), mesh._indices.size() * sizeof(uint32_t));
-
-	vmaUnmapMemory(_allocator, indexStagingBuffer._allocation);
-
-	vk::BufferCreateInfo indexBufferInfo = {};
-	indexBufferInfo.size = mesh._indices.size() * sizeof(uint32_t);
-	indexBufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer |
-		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
-
-	vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-	VkBuffer cIndexBuffer;
-
-	VK_CHECK( vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(indexBufferInfo)), &vmaAllocInfo,
-		&cIndexBuffer, &mesh._indexBuffer._allocation, nullptr) );
-
-	mesh._indexBuffer._buffer = static_cast<vk::Buffer>(cIndexBuffer);
-
-	immediate_submit([=](vk::CommandBuffer cmd) {
-		vk::BufferCopy copy;
-		copy.dstOffset = 0;
-		copy.srcOffset = 0;
-		copy.size = mesh._indices.size() * sizeof(uint32_t);
-		cmd.copyBuffer(indexStagingBuffer._buffer, mesh._indexBuffer._buffer, copy);
-	}, _uploadContext._commandBuffer);
+	upload_buffer(mesh._indices, mesh._indexBuffer, indexBufferUsage);
 
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(mesh._vertexBuffer._buffer),
@@ -1586,9 +1918,6 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 		vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(mesh._indexBuffer._buffer),
 			mesh._indexBuffer._allocation);
 	});
-
-	vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(vertexStagingBuffer._buffer), vertexStagingBuffer._allocation);
-	vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(indexStagingBuffer._buffer), indexStagingBuffer._allocation);
 }
 
 void VulkanEngine::cleanup()
@@ -1619,6 +1948,8 @@ void VulkanEngine::draw()
 	uint32_t swapchainImageIndex = _device.acquireNextImageKHR(_swapchain, 1000000000,
 		get_current_frame()._presentSemaphore, {}).value;
 
+	uint32_t intermediateImageIndex = swapchainImageIndex % FRAME_OVERLAP;
+
 	// we know that everything finished rendering, so we safely reset the command buffer and reuse it
 	VK_CHECK( vkResetCommandBuffer(get_current_frame()._mainCommandBuffer, 0) );
 
@@ -1641,7 +1972,7 @@ void VulkanEngine::draw()
 
 	// dynamic rendering
 	vk::RenderingAttachmentInfo intermediateColorAttachmentInfo = vkinit::rendering_attachment_info(
-		_intermediateImageViews[swapchainImageIndex], vk::ImageLayout::eColorAttachmentOptimal,
+		_intermediateImageViews[intermediateImageIndex], vk::ImageLayout::eColorAttachmentOptimal,
 		vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, clearValue);
 
 	vk::RenderingAttachmentInfo finalColorAttachmentInfo = vkinit::rendering_attachment_info(_swapchainImageViews[swapchainImageIndex],
@@ -1670,62 +2001,98 @@ void VulkanEngine::draw()
 	postPassRenderInfo.setColorAttachments(finalColorAttachmentInfo);
 	postPassRenderInfo.setPDepthAttachment(&lightingDepthAttachmentInfo);
 
-	std::sort(_renderables.begin(), _renderables.end());
+	if (_renderMode == RenderMode::eHybrid)
+	{
+		std::sort(_renderables.begin(), _renderables.end());
+	}
 
-	switch_intermediate_image_layout(cmd, swapchainImageIndex, true);
-
+	switch_intermediate_image_layout(cmd, intermediateImageIndex, true);
+	
 	// ========================================   RENDERING   ========================================
 
-	cmd.beginRendering(_geometryPassInfo);
+	upload_cam_scene_data(cmd, _renderables.data(), _renderables.size());
 
-	draw_objects(cmd, _renderables.data(), _renderables.size());
+	if (_renderMode == RenderMode::eHybrid)
+	{
+		cmd.beginRendering(_geometryPassInfo);
 
-	cmd.endRendering();
+		draw_objects(cmd, _renderables.data(), _renderables.size());
 
-	image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
-		vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_POSITION_SLOT],
-		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
+		cmd.endRendering();
 
-	image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
-		vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_NORMAL_SLOT],
-		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_POSITION_SLOT],
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
 
-	image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
-		vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_ALBEDO_SLOT],
-		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_NORMAL_SLOT],
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
 
-	image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
-		vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_METALLIC_ROUGHNESS_SLOT],
-		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_ALBEDO_SLOT],
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
 
-	cmd.beginRendering(_lightingPassInfo);
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _gBufferImages[GBUFFER_METALLIC_ROUGHNESS_SLOT],
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eFragmentShader);
 
-	draw_lighting_pass(cmd, _lightingPassPipelineLayout, _lightingPassPipeline);
+		cmd.beginRendering(_lightingPassInfo);
 
-	cmd.endRendering();
+		draw_lighting_pass(cmd, _lightingPassPipelineLayout, _lightingPassPipeline);
 
-	cmd.beginRendering(skyboxRenderInfo);
+		cmd.endRendering();
 
-	draw_skybox(cmd, _skyboxObject);
+		cmd.beginRendering(skyboxRenderInfo);
 
-	cmd.endRendering();
+		draw_skybox(cmd, _skyboxObject);
 
-	image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
-		vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImages[swapchainImageIndex],
-		vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
+		cmd.endRendering();
 
-	switch_intermediate_image_layout(cmd, swapchainImageIndex, false);
+		image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
+			vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImages[swapchainImageIndex],
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
 
-	switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
+		switch_intermediate_image_layout(cmd, intermediateImageIndex, false);
 
-	cmd.beginRendering(postPassRenderInfo);
+		switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
 
-	std::vector<vk::DescriptorSet> postPassSets;
-	postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
+		cmd.beginRendering(postPassRenderInfo);
 
-	draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
+		std::vector<vk::DescriptorSet> postPassSets;
+		postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
 
-	cmd.endRendering();
+		draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
+
+		cmd.endRendering();
+	}
+	else if (_renderMode == RenderMode::ePathTracing)
+	{
+		trace_rays(cmd, intermediateImageIndex);
+
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryWrite, vk::ImageLayout::eUndefined, 
+			vk::ImageLayout::eTransferDstOptimal, _swapchainImages[swapchainImageIndex], vk::ImageAspectFlagBits::eColor,
+			vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
+
+		vk::ImageBlit blit;
+
+		blit.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
+		blit.srcOffsets[1] = vk::Offset3D{ static_cast<int32_t>(_windowExtent.width),static_cast<int32_t>(_windowExtent.height), 1};
+		blit.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+		blit.srcSubresource.mipLevel = 0;
+		blit.srcSubresource.baseArrayLayer = 0;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = vk::Offset3D{ 0, 0, 0 };
+		blit.dstOffsets[1] = blit.srcOffsets[1];
+		blit.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+		blit.dstSubresource.mipLevel = 0;
+		blit.dstSubresource.baseArrayLayer = 0;
+		blit.dstSubresource.layerCount = 1;
+
+		switch_intermediate_image_layout(cmd, intermediateImageIndex, false);
+
+		cmd.blitImage(_intermediateImages[intermediateImageIndex], vk::ImageLayout::eGeneral,
+			_swapchainImages[swapchainImageIndex], vk::ImageLayout::eTransferDstOptimal, blit, vk::Filter::eLinear);
+	}
 
 	// ======================================== END RENDERING ========================================
 
@@ -1787,6 +2154,16 @@ size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
 	return alignedSize;
 }
 
+vk::DeviceSize VulkanEngine::align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment)
+{
+	vk::DeviceSize alignedSize = originalSize;
+	if (alignment > 0)
+	{
+		alignedSize = (alignedSize + alignment - 1) & ~(alignment - 1);
+	}
+	return alignedSize;
+}
+
 AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage)
 {
 	vk::BufferCreateInfo bufferInfo = {};
@@ -1840,7 +2217,7 @@ BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
 	uint32_t maxPrimCount = static_cast<uint32_t>(mesh._indices.size()) / 3;
 
 	BLASInput blasInput = {};
-	
+
 	blasInput._triangles.vertexFormat = vk::Format::eR32G32B32A32Sfloat;
 	blasInput._triangles.vertexData.deviceAddress = vertexAddress;
 	blasInput._triangles.vertexStride = sizeof(Vertex);
@@ -1849,9 +2226,9 @@ BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
 	blasInput._triangles.indexData = indexAddress;
 	blasInput._triangles.maxVertex = maxVertices;
 
-	// The data contains opaque geometry
 	blasInput._geometry.geometryType = vk::GeometryTypeKHR::eTriangles;
-	blasInput._geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
+	blasInput._geometry.flags = (_renderMode == RenderMode::ePathTracing) ?
+		vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation : vk::GeometryFlagBitsKHR::eOpaque;
 	blasInput._geometry.setGeometry(blasInput._triangles);
 
 	blasInput._buildRangeInfo.firstVertex = 0;
@@ -1897,11 +2274,11 @@ Model* VulkanEngine::get_model(const std::string& name)
 	}
 }
 
-void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
+void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), 
+	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -1911,7 +2288,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	camData.proj = projection;
 	camData.viewproj = projection * view;
 
-	_sceneParameters.pointLights[0].position = glm::vec4{_centralLightPos, 0.0f};
+	_sceneParameters.pointLights[0].position = glm::vec4{ _centralLightPos, 0.0f };
 
 	char* data;
 
@@ -1937,9 +2314,29 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	{
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
+		if (object.mesh)
+		{
+			uint64_t indexAddress = get_buffer_device_address(object.mesh->_indexBuffer._buffer);
+			uint64_t vertexAddress = get_buffer_device_address(object.mesh->_vertexBuffer._buffer);
+			objectSSBO[i].matIndex = object.mesh->_matIndex;
+			objectSSBO[i].indexBufferAddress = indexAddress;
+			objectSSBO[i].vertexBufferAddress = vertexAddress;
+			objectSSBO[i].emittance = object.mesh->_emittance;
+		}
 	}
 
 	vmaUnmapMemory(_allocator, get_current_frame()._objectBuffer._allocation);
+}
+
+void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
+{
+	glm::mat4 view = _camera.get_view_matrix();
+
+	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), 
+		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
+	projection[1][1] *= -1;
+
+	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
 	Model* lastModel = nullptr;
 	MaterialSet* lastMaterialSet = nullptr;
@@ -1976,14 +2373,14 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 					2 + DIFFUSE_TEX_SLOT, object.materialSet->diffuseTextureSet, {});
 			}
 
-			// specular texture descriptor
+			// metallic texture descriptor
 			if (object.materialSet->metallicTextureSet)
 			{
 				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
 					2 + METALLIC_TEX_SLOT, object.materialSet->metallicTextureSet, {});
 			}
 
-			// specular texture descriptor
+			// roughness texture descriptor
 			if (object.materialSet->roughnessTextureSet)
 			{
 				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
@@ -2008,9 +2405,6 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 		glm::mat4 model = object.transformMatrix;
 		// final render matrix
 		glm::mat4 mesh_matrix = projection * view * model;
-
-		MeshPushConstants constants = {};
-		constants.render_matrix = object.transformMatrix;
 		
 		if (object.model != lastModel)
 		{
@@ -2074,7 +2468,7 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pi
 {
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 
-	for (size_t i = 0; i < descriptorSets.size(); ++i)
+	for (uint32_t i = 0; i < descriptorSets.size(); ++i)
 	{
 		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], {});
 	}
@@ -2168,6 +2562,85 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	cmd.bindIndexBuffer(object.mesh->_indexBuffer._buffer, offset, vk::IndexType::eUint32);
 
 	cmd.drawIndexed(static_cast<uint32_t>(object.mesh->_indices.size()), 1, 0, 0, 0);
+}
+
+void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex)
+{
+	update_frame();
+
+	if (_rayConstants.frame >= _maxAccumFrames)
+	{
+		return;
+	}
+
+	FrameData& currentFrame = _frames[swapchainImageIndex];
+
+	std::vector<vk::DescriptorSet> rtSets = {
+		_rtDescriptorSet, currentFrame._outImageRTX, _globalDescriptor
+	};
+
+	for (auto& descSet : _texDescriptorSets)
+	{
+		rtSets.push_back(descSet);
+	}
+
+	cmd.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, _rtPipeline);
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eGeneralRTX, _rtDescriptorSet, {});
+
+	int frameIndex = _frameNumber % FRAME_OVERLAP;
+
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eOutImage, 
+		currentFrame._outImageRTX, {});
+
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
+		sizeof(GPUSceneData)) * frameIndex);
+
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eGlobal, _globalDescriptor, uniformOffset);
+
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eObjectData, currentFrame._objectDescriptor, {});
+
+	MaterialSet* materialSet = get_material_set("geometrypass");
+
+	// diffuse texture descriptor
+	if (materialSet->diffuseTextureSet)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
+			RTXSets::eDiffuseTex, materialSet->diffuseTextureSet, {});
+	}
+
+	// metallic texture descriptor
+	if (materialSet->metallicTextureSet)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
+			RTXSets::eMetallicTex, materialSet->metallicTextureSet, {});
+	}
+
+	// roughness texture descriptor
+	if (materialSet->roughnessTextureSet)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
+			RTXSets::eRoughnessTex, materialSet->roughnessTextureSet, {});
+	}
+
+	// normal map descriptor
+	if (materialSet->normalMapSet)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
+			RTXSets::eNormalMap, materialSet->normalMapSet, {});
+	}
+
+	// skybox descriptor
+	if (materialSet->skyboxSet)
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
+			RTXSets::eSkybox, materialSet->skyboxSet, {});
+	}
+
+	// upload to GPU
+	cmd.pushConstants(_rtPipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0,
+		sizeof(RayPushConstants), &_rayConstants);
+
+	cmd.traceRaysKHR(_rgenRegion, _rmissRegion, _rchitRegion, _rcallRegion, _windowExtent.width, _windowExtent.height, 1);
 }
 
 void VulkanEngine::on_mouse_motion_callback()

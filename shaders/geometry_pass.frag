@@ -34,8 +34,6 @@ void main()
 	float roughnessMaterial = texture(roughnessTex[matID], texCoord).g;
 	vec4 normalTex = texture(normalMap[matID], texCoord);
 
-	vec3 biTangent = cross(fragNormalWorld, normalize(fragTangent));
-
 	vec3 T = normalize(fragTangent);
 	vec3 B = cross(fragNormalWorld, fragTangent);
 	vec3 N = normalize(fragNormalWorld);

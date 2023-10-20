@@ -210,7 +210,7 @@ vk::ImageCreateInfo vkinit::image_create_info(vk::Format format, vk::ImageUsageF
 	info.mipLevels = mipLevels;
 	info.arrayLayers = (type == ImageType::eCubemap) ? 6 : 1;
 	info.samples = numSamples;
-	info.tiling = vk::ImageTiling::eOptimal;
+	info.tiling = (type == ImageType::eRTXOutput) ? vk::ImageTiling::eLinear : vk::ImageTiling::eOptimal;
 	info.usage = usageFlags;
 	info.flags = (type == ImageType::eCubemap) ? vk::ImageCreateFlagBits::eCubeCompatible : vk::ImageCreateFlagBits(0);
 

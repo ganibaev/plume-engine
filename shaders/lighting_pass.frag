@@ -11,7 +11,7 @@ layout (location = 0) in vec2 inTexCoords;
 
 layout (location = 0) out vec4 outFragColor;
 
-layout(constant_id = 0) const uint NUM_LIGHTS = 3;
+layout (constant_id = 0) const uint NUM_LIGHTS = 3;
 
 struct CameraData
 {
@@ -65,11 +65,7 @@ bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
 	{
 	}
 
-	if (rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-	{
-		return true;
-	}
-	return false;
+	return rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
 // microfacet distribution
