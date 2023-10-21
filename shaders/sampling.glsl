@@ -1,4 +1,6 @@
+#ifndef PI
 #define PI 3.1415926535897932384626433832795
+#endif
 
 // From Zafar, Olano, and Curtis, "GPU Random Numbers via the Tiny Encryption Algorithm"
 uint tea(uint val0, uint val1)

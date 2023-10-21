@@ -87,10 +87,10 @@ void main()
 
 	vec4 albedo = texture(diffuseTex[matID], texCoord);
 
-	vec3 BRDF = albedo.rgb / PI;
+	vec3 DiffuseBRDF = albedo.rgb / PI;
 	
 	prd.rayOrigin = rayOrigin;
 	prd.rayDirection = rayDirection;
 	prd.hitValue = emittance;
-	prd.weight = BRDF * cosTheta / pdf;
+	prd.weight = DiffuseBRDF * cosTheta / pdf;
 }

@@ -211,11 +211,10 @@ public:
 
 	bool _isInitialized = false;
 	int _frameNumber = 0;
-	int _maxAccumFrames = 2000;
 
 	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
 
-	constexpr static uint32_t FRAME_OVERLAP = (_renderMode == RenderMode::ePathTracing) ? 1 : 3;
+	constexpr static uint32_t FRAME_OVERLAP = 3;
 
 	constexpr static float _camSpeed = 0.2f;
 
@@ -297,17 +296,17 @@ public:
 	vk::SwapchainKHR _swapchain;
 
 	std::vector<vk::Image> _swapchainImages;
-	std::vector<vk::Image> _intermediateImages;
+	vk::Image _intermediateImage;
 	vk::Format _swapchainImageFormat;
 
 	std::vector<vk::ImageView> _swapchainImageViews;
-	std::vector<vk::ImageView> _intermediateImageViews;
+	vk::ImageView _intermediateImageView;
 
 	void image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 		vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
 		vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask);
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
-	void switch_intermediate_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
+	void switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering);
 
 	vk::ImageView _depthImageView;
 	vk::Image _depthImage;
@@ -321,6 +320,9 @@ public:
 
 	FrameData _frames[FRAME_OVERLAP];
 	FrameData& get_current_frame();
+
+	// effectively remove frame accumulation limit for path tracing, but reserve it for future use
+	int _maxAccumFrames = 60000;
 
 	vk::RenderingInfo _geometryPassInfo;
 	vk::RenderingInfo _lightingPassInfo;

@@ -201,47 +201,40 @@ void VulkanEngine::init_swapchain()
 
 	_swapchainImageFormat = static_cast<vk::Format>(vkbSwapchain.image_format);
 
-	_intermediateImages.resize(FRAME_OVERLAP);
-	_intermediateImageViews.resize(FRAME_OVERLAP);
+	vk::ImageCreateInfo intermediateImageCreateInfo;
 
-	for (size_t i = 0; i < _intermediateImages.size(); ++i)
+	if (_renderMode == RenderMode::ePathTracing)
 	{
-		vk::ImageCreateInfo intermediateImageCreateInfo;
-
-		if (_renderMode == RenderMode::ePathTracing)
-		{
-			intermediateImageCreateInfo = vkinit::image_create_info(vk::Format::eR16G16B16A16Sfloat,
-				vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
-				_windowExtent3D, 1, vk::SampleCountFlagBits::e1, ImageType::eRTXOutput);
-		}
-		else
-		{
-			intermediateImageCreateInfo = vkinit::image_create_info(_swapchainImageFormat,
-				vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled, _windowExtent3D, 1);
-		}
-		AllocatedImage intermediateImage = create_image(intermediateImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
-		_intermediateImages[i] = intermediateImage._image;
-
-		vk::ImageViewCreateInfo intermediateViewCreateInfo;
-		if (_renderMode == RenderMode::ePathTracing)
-		{
-			intermediateViewCreateInfo = vkinit::image_view_create_info(vk::Format::eR16G16B16A16Sfloat,
-				intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
-		}
-		else
-		{
-			intermediateViewCreateInfo = vkinit::image_view_create_info(_swapchainImageFormat,
-				intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
-		}
-
-		vk::ImageView intermediateImageView = _device.createImageView(intermediateViewCreateInfo);
-		_intermediateImageViews[i] = intermediateImageView;
-
-		_mainDeletionQueue.push_function([=]() {
-			vmaDestroyImage(_allocator, intermediateImage._image, intermediateImage._allocation);
-			_device.destroyImageView(intermediateImageView);
-		});
+		intermediateImageCreateInfo = vkinit::image_create_info(vk::Format::eR16G16B16A16Sfloat,
+			vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
+			_windowExtent3D, 1, vk::SampleCountFlagBits::e1, ImageType::eRTXOutput);
 	}
+	else
+	{
+		intermediateImageCreateInfo = vkinit::image_create_info(_swapchainImageFormat,
+			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled, _windowExtent3D, 1);
+	}
+	AllocatedImage intermediateImage = create_image(intermediateImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
+	_intermediateImage = intermediateImage._image;
+
+	vk::ImageViewCreateInfo intermediateViewCreateInfo;
+	if (_renderMode == RenderMode::ePathTracing)
+	{
+		intermediateViewCreateInfo = vkinit::image_view_create_info(vk::Format::eR16G16B16A16Sfloat,
+			intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+	}
+	else
+	{
+		intermediateViewCreateInfo = vkinit::image_view_create_info(_swapchainImageFormat,
+			intermediateImage._image, vk::ImageAspectFlagBits::eColor, 1);
+	}
+
+	_intermediateImageView = _device.createImageView(intermediateViewCreateInfo);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyImage(_allocator, intermediateImage._image, intermediateImage._allocation);
+		_device.destroyImageView(_intermediateImageView);
+	});
 
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroySwapchainKHR(_swapchain);
@@ -268,7 +261,7 @@ void VulkanEngine::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlag
 	cmd.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, transition);
 }
 
-void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
+void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering)
 {
 	if (beforeRendering)
 	{
@@ -278,7 +271,7 @@ void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, uint3
 		transferToWritable.oldLayout = vk::ImageLayout::eUndefined;
 		transferToWritable.newLayout = (_renderMode == RenderMode::eHybrid) ? vk::ImageLayout::eColorAttachmentOptimal : 
 			vk::ImageLayout::eGeneral;
-		transferToWritable.image = _intermediateImages[swapchainImageIndex];
+		transferToWritable.image = _intermediateImage;
 
 		transferToWritable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
 		transferToWritable.subresourceRange.levelCount = 1;
@@ -301,9 +294,8 @@ void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, uint3
 		transferToSamplable.srcAccessMask = (_renderMode == RenderMode::eHybrid) ? vk::AccessFlagBits::eColorAttachmentWrite :
 			vk::AccessFlagBits::eShaderWrite;
 		transferToSamplable.oldLayout = vk::ImageLayout::eUndefined;
-		transferToSamplable.newLayout = (_renderMode == RenderMode::eHybrid) ? vk::ImageLayout::eShaderReadOnlyOptimal : 
-			vk::ImageLayout::eGeneral;
-		transferToSamplable.image = _intermediateImages[swapchainImageIndex];
+		transferToSamplable.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		transferToSamplable.image = _intermediateImage;
 
 		transferToSamplable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
 		transferToSamplable.subresourceRange.levelCount = 1;
@@ -343,8 +335,7 @@ void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t
 	{
 		vk::ImageMemoryBarrier transferToPresentable;
 		transferToPresentable.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
-		transferToPresentable.oldLayout = _renderMode == RenderMode::ePathTracing ? vk::ImageLayout::eTransferDstOptimal
-			: vk::ImageLayout::eColorAttachmentOptimal;
+		transferToPresentable.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
 		transferToPresentable.newLayout = vk::ImageLayout::ePresentSrcKHR;
 		transferToPresentable.image = _swapchainImages[swapchainImageIndex];
 
@@ -755,7 +746,7 @@ void VulkanEngine::init_descriptors()
 
 		vk::DescriptorImageInfo frameImageInfo;
 		frameImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		frameImageInfo.imageView = _intermediateImageViews[i];
+		frameImageInfo.imageView = _intermediateImageView;
 		frameImageInfo.sampler = gBufferSampler;
 
 		vk::WriteDescriptorSet positionWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
@@ -1054,24 +1045,35 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule postPassVertexShader;
 
-	if (!load_shader_module("../../../shaders/fxaa.vert.spv", &postPassVertexShader))
+	if (!load_shader_module("../../../shaders/postprocess.vert.spv", &postPassVertexShader))
 	{
-		std::cout << "Error building FXAA vertex shader module" << std::endl;
+		std::cout << "Error building postprocess vertex shader module" << std::endl;
 	}
 	else
 	{
-		std::cout << "FXAA vertex shader loaded successfully" << std::endl;
+		std::cout << "Postprocess vertex shader loaded successfully" << std::endl;
 	}
 
-	vk::ShaderModule postPassFragmentShader;
+	vk::ShaderModule fxaaFragmentShader;
 
-	if (!load_shader_module("../../../shaders/fxaa.frag.spv", &postPassFragmentShader))
+	if (!load_shader_module("../../../shaders/fxaa.frag.spv", &fxaaFragmentShader))
 	{
 		std::cout << "Error building FXAA fragment shader module" << std::endl;
 	}
 	else
 	{
 		std::cout << "FXAA fragment shader loaded successfully" << std::endl;
+	}
+
+	vk::ShaderModule denoiserFragmentShader;
+
+	if (!load_shader_module("../../../shaders/morrone_denoiser.frag.spv", &denoiserFragmentShader))
+	{
+		std::cout << "Error building denoiser fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Denoiser fragment shader loaded successfully" << std::endl;
 	}
 
 	vk::PipelineLayoutCreateInfo postPassPipelineLayoutInfo;
@@ -1095,8 +1097,17 @@ void VulkanEngine::init_pipelines()
 	pipelineBuilder._shaderStages.clear();
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
 		postPassVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-		postPassFragmentShader));
+	if (_renderMode == RenderMode::eHybrid)
+	{
+		pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+			fxaaFragmentShader));
+	}
+	else
+	{
+		pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+			denoiserFragmentShader));
+	}
+	
 
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
@@ -1111,7 +1122,8 @@ void VulkanEngine::init_pipelines()
 	_device.destroyShaderModule(lightingPassVertexShader);
 	_device.destroyShaderModule(lightingPassFragmentShader);
 	_device.destroyShaderModule(postPassVertexShader);
-	_device.destroyShaderModule(postPassFragmentShader);
+	_device.destroyShaderModule(fxaaFragmentShader);
+	_device.destroyShaderModule(denoiserFragmentShader);
 	_device.destroyShaderModule(skyboxVertShader);
 	_device.destroyShaderModule(skyboxFragShader);
 
@@ -1306,7 +1318,7 @@ void VulkanEngine::init_rt_descriptors()
 	{
 		vk::DescriptorImageInfo outImageDescInfo;
 		outImageDescInfo.imageLayout = vk::ImageLayout::eGeneral;
-		outImageDescInfo.imageView = _intermediateImageViews[i];
+		outImageDescInfo.imageView = _intermediateImageView;
 
 		vk::WriteDescriptorSet outImageWrite;
 		outImageWrite.dstBinding = 0;
@@ -1948,8 +1960,6 @@ void VulkanEngine::draw()
 	uint32_t swapchainImageIndex = _device.acquireNextImageKHR(_swapchain, 1000000000,
 		get_current_frame()._presentSemaphore, {}).value;
 
-	uint32_t intermediateImageIndex = swapchainImageIndex % FRAME_OVERLAP;
-
 	// we know that everything finished rendering, so we safely reset the command buffer and reuse it
 	VK_CHECK( vkResetCommandBuffer(get_current_frame()._mainCommandBuffer, 0) );
 
@@ -1972,7 +1982,7 @@ void VulkanEngine::draw()
 
 	// dynamic rendering
 	vk::RenderingAttachmentInfo intermediateColorAttachmentInfo = vkinit::rendering_attachment_info(
-		_intermediateImageViews[intermediateImageIndex], vk::ImageLayout::eColorAttachmentOptimal,
+		_intermediateImageView, vk::ImageLayout::eColorAttachmentOptimal,
 		vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, clearValue);
 
 	vk::RenderingAttachmentInfo finalColorAttachmentInfo = vkinit::rendering_attachment_info(_swapchainImageViews[swapchainImageIndex],
@@ -2006,7 +2016,7 @@ void VulkanEngine::draw()
 		std::sort(_renderables.begin(), _renderables.end());
 	}
 
-	switch_intermediate_image_layout(cmd, intermediateImageIndex, true);
+	switch_intermediate_image_layout(cmd, true);
 	
 	// ========================================   RENDERING   ========================================
 
@@ -2049,10 +2059,10 @@ void VulkanEngine::draw()
 		cmd.endRendering();
 
 		image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
-			vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImages[swapchainImageIndex],
+			vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImage,
 			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
 
-		switch_intermediate_image_layout(cmd, intermediateImageIndex, false);
+		switch_intermediate_image_layout(cmd, false);
 
 		switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
 
@@ -2067,11 +2077,11 @@ void VulkanEngine::draw()
 	}
 	else if (_renderMode == RenderMode::ePathTracing)
 	{
-		trace_rays(cmd, intermediateImageIndex);
+		trace_rays(cmd, swapchainImageIndex);
 
-		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryWrite, vk::ImageLayout::eUndefined, 
-			vk::ImageLayout::eTransferDstOptimal, _swapchainImages[swapchainImageIndex], vk::ImageAspectFlagBits::eColor,
-			vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
+		//image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryWrite, vk::ImageLayout::eUndefined,
+		//	vk::ImageLayout::eTransferDstOptimal, _swapchainImages[swapchainImageIndex], vk::ImageAspectFlagBits::eColor,
+		//	vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 
 		vk::ImageBlit blit;
 
@@ -2088,10 +2098,25 @@ void VulkanEngine::draw()
 		blit.dstSubresource.baseArrayLayer = 0;
 		blit.dstSubresource.layerCount = 1;
 
-		switch_intermediate_image_layout(cmd, intermediateImageIndex, false);
+		image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
+			vk::ImageLayout::eGeneral, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImage,
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
 
-		cmd.blitImage(_intermediateImages[intermediateImageIndex], vk::ImageLayout::eGeneral,
-			_swapchainImages[swapchainImageIndex], vk::ImageLayout::eTransferDstOptimal, blit, vk::Filter::eLinear);
+		switch_intermediate_image_layout(cmd, false);
+
+		switch_swapchain_image_layout(cmd, swapchainImageIndex, true);
+
+		cmd.beginRendering(postPassRenderInfo);
+
+		std::vector<vk::DescriptorSet> postPassSets;
+		postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
+
+		draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
+
+		cmd.endRendering();
+
+		//cmd.blitImage(_intermediateImage, vk::ImageLayout::eGeneral,
+		//	_swapchainImages[swapchainImageIndex], vk::ImageLayout::eTransferDstOptimal, blit, vk::Filter::eLinear);
 	}
 
 	// ======================================== END RENDERING ========================================

@@ -5,7 +5,9 @@
 
 #define TLAS_SLOT 0U
 
+#ifndef PI
 #define PI 3.1415926535897932384626433832795
+#endif
 
 layout (location = 0) in vec2 inTexCoords;
 
