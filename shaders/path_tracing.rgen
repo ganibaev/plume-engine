@@ -71,6 +71,17 @@ void main()
 
 		hitValue += prd.hitValue * curWeight;
 		curWeight *= prd.weight;
+
+		// Russian roulette path termination
+		if (prd.depth > 3)
+		{
+			const float q = max(0.05f, 1.f - max(prd.weight.r, max(prd.weight.g, prd.weight.b)));
+			if (rng(seed) < q)
+			{
+				break;
+			}
+			curWeight /= (1.0 - q);
+		}
 	}
 
 	if (rayConstants.frame > 0)
