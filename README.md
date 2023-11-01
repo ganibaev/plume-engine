@@ -1,11 +1,12 @@
 # Plume Engine
 
-![plume-v0 14](https://github.com/ganibaev/plume-engine/assets/55918604/b22bdb6a-8c32-4b44-866e-e975dbf38a47)
+![plume-v0 15](https://github.com/ganibaev/plume-engine/assets/55918604/8155572f-0387-4d26-9757-42ad6d82ca79)
+![plume-v0 15EXT](https://github.com/ganibaev/plume-engine/assets/55918604/40bc3e6e-3197-4e6e-b672-3c7bfa58a1e0)
 ![plume-v0 14EXT](https://github.com/ganibaev/plume-engine/assets/55918604/d86f749c-7511-453e-9cda-1b04d3aefabd)
-***Pic 1, 2:** Rendered in path tracing mode.*
+***Pic 1, 2, 3:** Rendered in path tracing mode.*
 
 ![plume-v0 13](https://github.com/ganibaev/plume-engine/assets/55918604/047ae73f-af23-46d3-8ef9-f62027e21ce6)
-***Pic 3:** Rendered in hybrid mode.*
+***Pic 4:** Rendered in hybrid mode.*
 
 
 This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
