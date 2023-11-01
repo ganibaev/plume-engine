@@ -86,6 +86,8 @@ void main()
 	const float pdf = cosTheta / PI;
 
 	vec4 albedo = texture(diffuseTex[matID], texCoord);
+	float metallic = texture(metallicTex[matID], texCoord).b;
+	float roughness = texture(roughnessTex[matID], texCoord).g;
 
 	vec3 DiffuseBRDF = albedo.rgb / PI;
 	
@@ -93,4 +95,10 @@ void main()
 	prd.rayDirection = rayDirection;
 	prd.hitValue = emittance;
 	prd.weight = DiffuseBRDF * cosTheta / pdf;
+
+	if (metallic > 0.9 && roughness < 0.1)
+	{
+		prd.rayDirection = reflect(gl_WorldRayDirectionEXT, N);
+		prd.weight = albedo.rgb * cosTheta;
+	}
 }

@@ -54,7 +54,7 @@ void main()
 	vec3 curWeight = vec3(1.0);
 	vec3 hitValue = vec3(0.0);
 
-	for (; prd.depth < 10; ++prd.depth)
+	for (; prd.depth < 12; ++prd.depth)
 	{
 		traceRayEXT(topLevelAS,	   // TLAS
 				rayFlags,		   // flags
@@ -73,7 +73,7 @@ void main()
 		curWeight *= prd.weight;
 
 		// Russian roulette path termination
-		if (prd.depth > 3)
+		if (prd.depth > 2)
 		{
 			const float q = max(0.05f, 1.f - max(prd.weight.r, max(prd.weight.g, prd.weight.b)));
 			if (rng(seed) < q)
