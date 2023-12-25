@@ -19,10 +19,9 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 ## Work in progress (loosely arranged in order of priority)
 
-* Environment map in path tracing mode
-* Disney PBR (e.g. https://media.disneyanimation.com/uploads/production/publication_asset/48/asset/s2012_pbs_disney_brdf_notes_v3.pdf)
-* IBL
-* ReSTIR GI
+* Motion vectors
+* GI for Hybrid mode
+* ReSTIR, ReSTIR GI
 * GPU driven rendering for meshes
 * ...etc.
 
@@ -45,4 +44,4 @@ Vulkan validation layers are enabled by default. To turn them off, set `ENABLE_V
 
 ## Acknowledgements
 
-This project is based on the Vulkan Guide by Victor Blanco (https://vkguide.dev/), Vulkan Tutorial by Alexander Overvoorde (https://vulkan-tutorial.com/), Vulkan samples by Sascha Willems (https://github.com/SaschaWillems/Vulkan), NVIDIA Vulkan Ray Tracing Tutorials (https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR), Vulkan Game Engine Tutorial by Brendan Galea (https://github.com/blurrypiano/littleVulkanEngine), glslSmartDeNoise by Michele Morrone (https://github.com/BrutPitt/glslSmartDeNoise) and Learn OpenGL by Joey de Vries (https://learnopengl.com/).
+This project is based on the Vulkan Guide by Victor Blanco (https://vkguide.dev/), Vulkan Tutorial by Alexander Overvoorde (https://vulkan-tutorial.com/), Vulkan samples by Sascha Willems (https://github.com/SaschaWillems/Vulkan), NVIDIA Vulkan Ray Tracing Tutorials (https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR), NVIDIA Vulkan Ray Tracing Sample (https://github.com/nvpro-samples/vk_raytrace/), Vulkan Game Engine Tutorial by Brendan Galea (https://github.com/blurrypiano/littleVulkanEngine), glslSmartDeNoise by Michele Morrone (https://github.com/BrutPitt/glslSmartDeNoise) and Learn OpenGL by Joey de Vries (https://learnopengl.com/).

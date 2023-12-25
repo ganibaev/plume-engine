@@ -8,8 +8,11 @@
 
 layout (location = 0) rayPayloadInEXT hitPayload prd;
 
+layout (set = eSkybox, binding = 0) uniform samplerCube skyboxSampler;
+
 void main()
 {
+	// prd.hitValue = texture(skyboxSampler, normalize(gl_WorldRayDirectionEXT)).rgb;
 	prd.hitValue = vec3(253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f) * 5;
 	// end path
 	prd.depth = 100;

@@ -61,3 +61,21 @@ void createCoordinateSystem(in vec3 N, out vec3 Nt, out vec3 Nb)
 	}
 	Nb = cross(N, Nt);
 }
+
+vec3 sampleGGX(float roughness, inout uint seed, in vec3 x, in vec3 y, in vec3 z)
+{
+	float r1 = rng(seed);
+	float r2 = rng(seed);
+
+	float phi = r1 * 2.0 * PI;
+
+	float cosTheta = sqrt((1.0 - r2) / (1.0 + (roughness * roughness - 1.0) * r2));
+	float sinTheta = clamp(sqrt(1.0 - cosTheta * cosTheta), 0.0, 1.0);
+	float sinPhi = sin(phi);
+	float cosPhi = cos(phi);
+
+	vec3 direction = vec3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta);
+	direction = normalize(direction.x * x + direction.y * y + direction.z * z);
+
+	return direction;
+}

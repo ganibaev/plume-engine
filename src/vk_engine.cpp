@@ -641,7 +641,7 @@ void VulkanEngine::init_descriptors()
 	// cubemap set layout
 
 	vk::DescriptorSetLayoutBinding cubemapBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, 0);
+		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eMissKHR, 0);
 
 	vk::DescriptorSetLayoutCreateInfo cubemapSetInfo;
 	cubemapSetInfo.setBindings(cubemapBind);
@@ -1463,7 +1463,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = {
 		_rtSetLayout, _rtOutSetLayout, _globalSetLayout, _objectSetLayout, _textureSetLayout,
-		_textureSetLayout, _textureSetLayout, _textureSetLayout
+		_textureSetLayout, _textureSetLayout, _textureSetLayout, _cubemapSetLayout
 	};
 	rtPipelineLayoutInfo.setSetLayouts(rtPipelineSetLayouts);
 	_rtPipelineLayout = _device.createPipelineLayout(rtPipelineLayoutInfo);
@@ -2626,6 +2626,8 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 
 	MaterialSet* materialSet = get_material_set("geometrypass");
 
+	MaterialSet* skyboxMatSet = get_material_set("skybox");
+
 	// diffuse texture descriptor
 	if (materialSet->diffuseTextureSet)
 	{
@@ -2655,10 +2657,10 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	}
 
 	// skybox descriptor
-	if (materialSet->skyboxSet)
+	if (skyboxMatSet->skyboxSet)
 	{
 		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eSkybox, materialSet->skyboxSet, {});
+			RTXSets::eSkybox, skyboxMatSet->skyboxSet, {});
 	}
 
 	// upload to GPU

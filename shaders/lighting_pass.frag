@@ -2,6 +2,9 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_ray_tracing : enable
 #extension GL_EXT_ray_query : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "bsdf.glsl"
 
 #define TLAS_SLOT 0U
 
@@ -70,66 +73,6 @@ bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
 	return rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
-// microfacet distribution
-float GGX(float dotNH, float roughness)
-{
-	float alpha = roughness * roughness;
-	float alphaSq = alpha * alpha;
-	
-	float denom = dotNH * dotNH * (alphaSq - 1.0) + 1.0;
-
-	return alphaSq / (PI * denom * denom);
-}
-
-// microfacet shadowing
-float SchlickSmithGGX(float dotNL, float dotNV, float roughness)
-{
-	float r = roughness + 1.0;
-	float k = r * r / 8.0;
-
-	float GL = dotNL / (dotNL * (1.0 - k) + k);
-	float GV = dotNV / (dotNV * (1.0 - k) + k);
-
-	return GL * GV;
-}
-
-vec3 FresnelSchlick(float cosTheta, float metallic, vec3 color)
-{
-	vec3 F0 = mix(vec3(0.04), color, metallic);
-	vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-
-	return F;
-}
-
-vec3 ContribBRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness, vec3 texColor, vec3 lightColor, vec3 radiance)
-{
-	vec3 H = normalize(V + L);
-	float dotNV = clamp(dot(N, V), 0.0, 1.0);
-	float dotNL = clamp(dot(N, L), 0.0, 1.0);
-	float dotLH = clamp(dot(L, H), 0.0, 1.0);
-	float dotNH = clamp(dot(N, H), 0.0, 1.0);
-
-	vec3 color = vec3(0.0);
-
-	if (dotNL > 0.0)
-	{
-		float rRoughness = max(0.05, roughness);
-
-		float D = GGX(dotNH, roughness);
-		float G = SchlickSmithGGX(dotNL, dotNV, roughness);
-		vec3 F = FresnelSchlick(dotNV, metallic, texColor);
-
-		vec3 kSpec = F;
-		vec3 kDiffuse = vec3(1.0) - kSpec;
-		kDiffuse *= 1.0 - metallic;
-
-		vec3 specular = D * F * G / (4.0 * dotNL * dotNV + 0.0001);
-
-		color += (kDiffuse * texColor / PI + specular) * dotNL * radiance;
-	}
-	return color;
-}
-
 vec3 ACESTonemap(vec3 color)
 {
     float a = 2.51f;
@@ -168,12 +111,13 @@ void main()
 	vec3 N = normalize(surfaceNormal);
 	vec3 V = viewDirection;
 
+	float dirDotNL = clamp(dot(N, dirToLightDir), 0.0, 1.0);
+
 	vec3 Lo = vec3(0.0);
 
 	vec3 dirRadiance = camSceneData.dirLight.color.rgb * camSceneData.dirLight.direction.w;
 
-	vec3 dirContrib = ContribBRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial,
-		camSceneData.dirLight.color.rgb, dirRadiance);
+	vec3 dirContrib = BRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial) * dirDotNL * dirRadiance;
 
 	if (shadowRayHit(fragPosWorld, dirToLightDir, 0.01, 10000.0))
 	{
@@ -194,8 +138,9 @@ void main()
 		float distancePoint = length(dirToLight);
 		float attenuation = 1.0 / dot(dirToLight, dirToLight);
 		vec3 radiance = camSceneData.pointLights[i].color.rgb * camSceneData.pointLights[i].color.a * attenuation;
+		float pointDotNL = clamp(dot(N, L), 0.0, 1.0);
 
-		vec3 contrib = ContribBRDF(L, V, N, metallic, roughness, diffuseMaterial, camSceneData.dirLight.color.rgb, radiance);
+		vec3 contrib = BRDF(L, V, N, metallic, roughness, diffuseMaterial) * pointDotNL * radiance;
 		if (shadowRayHit(fragPosWorld, L, 0.01, distancePoint))
 		{
 			continue;

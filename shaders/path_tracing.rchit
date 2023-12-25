@@ -9,6 +9,7 @@
 #include "host_device_common.h"
 #include "ray_common.glsl"
 #include "sampling.glsl"
+#include "bsdf.glsl"
 
 layout (location = 0) rayPayloadInEXT hitPayload prd;
 hitAttributeEXT vec3 hitUV;
@@ -67,6 +68,12 @@ void main()
 	vec3 B = cross(vertexNormal, T);
 	vec3 N = normalize(vec3(vertexNormal * gl_WorldToObjectEXT)); // world normal
 
+	vec3 L = vec3(0.0);
+	vec3 V = normalize(-prd.rayDirection);
+
+	float pdf = 0.0;
+	vec3 brdf = vec3(0.0);
+
 	mat3 TBN = mat3(T, B, N);
 
 	const vec4 normalTex = texture(normalMap[matID], texCoord);
@@ -80,25 +87,44 @@ void main()
 	vec3 emittance = currentObject.emittance;
 
 	vec3 rayOrigin = worldPos;
-	vec3 rayDirection = sampleHemisphere(prd.seed, T, B, N);
-
-	const float cosTheta = dot(rayDirection, N);
-	const float pdf = cosTheta / PI;
 
 	vec4 albedo = texture(diffuseTex[matID], texCoord);
 	float metallic = texture(metallicTex[matID], texCoord).b;
 	float roughness = texture(roughnessTex[matID], texCoord).g;
 
-	vec3 DiffuseBRDF = albedo.rgb / PI;
-	
-	prd.rayOrigin = rayOrigin;
-	prd.rayDirection = rayDirection;
-	prd.hitValue = emittance;
-	prd.weight = DiffuseBRDF * cosTheta / pdf;
+	float diffuseProb = 0.5 * (1.0 - metallic);
+	float specProb = 1.0 - diffuseProb;
 
-	if (metallic > 0.9 && roughness < 0.1)
+	if (rng(prd.seed) < diffuseProb)
 	{
-		prd.rayDirection = reflect(gl_WorldRayDirectionEXT, N);
-		prd.weight = albedo.rgb * cosTheta;
+		L = sampleHemisphere(prd.seed, T, B, N);
+
+		vec3 H = normalize(L + V);
+
+		float dotNL = dot(N, L);
+		float dotNV = dot(N, V);
+
+		brdf = DiffuseBRDF(albedo.rgb, metallic, V, N, L, H, pdf);
+		pdf *= diffuseProb;
+	}
+	else
+	{
+		vec3 H = sampleGGX(roughness, prd.seed, T, B, N);
+		L = reflect(-V, H);
+
+		brdf = SpecularBRDF(albedo.rgb, metallic, roughness, V, N, L, H, pdf);
+		pdf *= specProb;
+	}
+
+	prd.rayOrigin = rayOrigin;
+	prd.rayDirection = L;
+	prd.hitValue = emittance;
+	if (pdf > 0.001)
+	{
+		prd.weight = brdf * abs(dot(N, prd.rayDirection)) / pdf;
+	}
+	else
+	{
+		prd.weight = vec3(0.0);
 	}
 }
