@@ -13,13 +13,14 @@ This is the repository for Plume, my toy rendering engine written in Vulkan and 
 
 It has two modes of rendering: path tracing and hybrid (rasterization + ray traced shadows).
 
-Both modes use normal mapping, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing (bindless texturing), path tracing mode uses camera jittering, temporal sample accumulation, Russian roulette path termination and a Morrone denoiser (also known as *glslSmartDenoise*), while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR and FXAA.
+Both modes use normal mapping, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing (bindless texturing), path tracing mode uses camera jittering, reprojection, temporal sample accumulation, Russian roulette path termination and a Morrone denoiser (also known as *glslSmartDenoise*), while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR and FXAA.
 
 The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the main light source in world space with arrow keys (RShift to move up and RCtrl to move down).
 
 ## Work in progress (loosely arranged in order of priority)
 
-* Motion vectors
+* Descriptor system refactoring
+* Motion vector filtering
 * GI for Hybrid mode
 * ReSTIR, ReSTIR GI
 * GPU driven rendering for meshes
