@@ -4,6 +4,9 @@ struct CameraData
 	mat4 invView;
 	mat4 proj;
 	mat4 viewproj;
+	mat4 invProj;
+	mat4 invViewProj;
+	mat4 prevViewProj;
 };
 
 struct SceneData
@@ -50,7 +53,7 @@ struct RayPushConstants
 
 const uint // enum RTXSets
 	eGeneralRTX = 0,
-	eOutImage = 1,
+	ePerFrame = 1,
 	eGlobal = 2,
 	eObjectData = 3,
 	eDiffuseTex = 4,

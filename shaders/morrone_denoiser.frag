@@ -65,10 +65,32 @@ vec4 morroneDenoiser(sampler2D tex, vec2 uv, float sigma, float kSigma, float th
     return aBuff / zBuff;
 }
 
+// from http://filmicworlds.com/blog/filmic-tonemapping-operators/
+vec3 unchartedTonemapImpl(vec3 color)
+{
+    const float A = 0.15;
+    const float B = 0.50;
+    const float C = 0.10;
+    const float D = 0.20;
+    const float E = 0.02;
+    const float F = 0.30;
+    return ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+}
+
+vec3 unchartedTonemap(vec3 color)
+{
+    const float W = 11.2;
+    const float exposureBias = 2.0;
+    color = unchartedTonemapImpl(color * exposureBias);
+    vec3 whiteScale = 1.0 / unchartedTonemapImpl(vec3(W));
+    return color * whiteScale;
+}
+
 void main()
 {
     float sigma = 1.0;
     float kSigma = 1.0;
     float threshold = 0.075;
 	outColor = morroneDenoiser(frameTexture, inTexCoords, sigma, kSigma, threshold);
+	outColor = vec4(unchartedTonemap(outColor.rgb), 1.0);
 }

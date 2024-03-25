@@ -13,6 +13,10 @@
 
 #include <glm/glm.hpp>
 
+#define GLM_ENABLE_EXPERIMENTAL
+
+#include <glm/gtx/io.hpp>
+
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
@@ -110,7 +114,7 @@ enum RTXBindings
 enum RTXSets
 {
 	eGeneralRTX = 0,
-	eOutImage = 1,
+	ePerFrame = 1,
 	eGlobal = 2,
 	eObjectData = 3,
 	eDiffuseTex = 4,
@@ -133,6 +137,9 @@ struct GPUCameraData
 	glm::mat4 invView;
 	glm::mat4 proj;
 	glm::mat4 viewproj;
+	glm::mat4 invProj;
+	glm::mat4 invViewProj;
+	glm::mat4 prevViewProj = glm::identity<glm::mat4>();
 };
 
 struct DirectionalLight
@@ -184,7 +191,7 @@ struct FrameData
 	vk::DescriptorSet _gBufferDescriptorSet;
 	vk::DescriptorSet _postprocessDescriptorSet;
 
-	vk::DescriptorSet _outImageRTX;
+	vk::DescriptorSet _perFrameSetRTX;
 };
 
 struct DeletionQueue {
@@ -258,8 +265,10 @@ public:
 	Scene _scene;
 
 	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
+	Camera _prevCamera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
+	glm::mat4 _prevViewProj = glm::identity<glm::mat4>();
 
 	glm::vec3 _centralLightPos = { 2.8f, 20.0f, 17.5f };
 
@@ -274,7 +283,7 @@ public:
 
 	vk::DescriptorPool _rtDescriptorPool;
 	vk::DescriptorSetLayout _rtSetLayout;
-	vk::DescriptorSetLayout _rtOutSetLayout;
+	vk::DescriptorSetLayout _rtPerFrameSetLayout;
 
 	vk::DescriptorSet _rtDescriptorSet;
 
@@ -302,11 +311,15 @@ public:
 	std::vector<vk::ImageView> _swapchainImageViews;
 	vk::ImageView _intermediateImageView;
 
+	vk::Image _prevFrameImage;
+	vk::ImageView _prevFrameImageView;
+
 	void image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 		vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
 		vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask);
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 	void switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering);
+	void switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd);
 
 	vk::ImageView _depthImageView;
 	vk::Image _depthImage;
@@ -336,6 +349,9 @@ public:
 	vk::PipelineLayout _postPassPipelineLayout;
 	vk::Pipeline _postPassPipeline;
 
+	vk::PipelineLayout _mvPassPipelineLayout;
+	vk::Pipeline _mvPassPipeline;
+
 	vk::DescriptorSetLayout _gBufferSetLayout;
 	vk::DescriptorSetLayout _postprocessSetLayout;
 
@@ -343,6 +359,11 @@ public:
 	std::array<vk::RenderingAttachmentInfo, NUM_GBUFFER_ATTACHMENTS> _gBufferColorAttachments;
 	vk::RenderingAttachmentInfo _gBufferDepthAttachment;
 	std::array<vk::Format, NUM_GBUFFER_ATTACHMENTS> _colorAttachmentFormats;
+
+	vk::Image _motionVectorImage;
+	vk::RenderingAttachmentInfo _motionVectorAttachment;
+	vk::ImageView _motionVectorImageView;
+	constexpr static vk::Format _motionVectorFormat = vk::Format::eR32G32Sfloat;
 
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> _rtShaderGroups;
 	vk::PipelineLayout _rtPipelineLayout;
@@ -359,6 +380,9 @@ public:
 
 	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
 	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);
+
+	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
+		vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent);
 
 	vk::DeviceAddress get_buffer_device_address(vk::Buffer buffer);
 	BLASInput convert_to_blas_input(Mesh& mesh);
@@ -398,7 +422,9 @@ private:
 
 	void init_gbuffer_attachments();
 	void create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
-		vk::Image* image = nullptr);
+		vk::Image* image = nullptr, vk::ImageView* imageView = nullptr);
+
+	void init_prepass_attachments();
 
 	void init_raytracing();
 

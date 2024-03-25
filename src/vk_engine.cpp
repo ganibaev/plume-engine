@@ -45,6 +45,8 @@ void VulkanEngine::init()
 
 	init_gbuffer_attachments();
 
+	init_prepass_attachments();
+
 	init_raytracing();
 
 	init_sync_structures();
@@ -231,9 +233,27 @@ void VulkanEngine::init_swapchain()
 
 	_intermediateImageView = _device.createImageView(intermediateViewCreateInfo);
 
+	AllocatedImage prevFrameImage;
+
+	if (_renderMode == RenderMode::ePathTracing)
+	{
+		auto prevFrameImageCreateInfo = vkinit::image_create_info(vk::Format::eR16G16B16A16Sfloat,
+			vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
+			_windowExtent3D, 1, vk::SampleCountFlagBits::e1, ImageType::eRTXOutput);
+		prevFrameImage = create_image(prevFrameImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
+		_prevFrameImage = prevFrameImage._image;
+		vk::ImageViewCreateInfo prevFrameViewCreateInfo = vkinit::image_view_create_info(vk::Format::eR16G16B16A16Sfloat,
+			prevFrameImage._image, vk::ImageAspectFlagBits::eColor, 1);
+		_prevFrameImageView = _device.createImageView(prevFrameViewCreateInfo);
+	}
+
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyImage(_allocator, intermediateImage._image, intermediateImage._allocation);
 		_device.destroyImageView(_intermediateImageView);
+		if (_renderMode == RenderMode::ePathTracing) {
+			vmaDestroyImage(_allocator, prevFrameImage._image, prevFrameImage._allocation);
+			_device.destroyImageView(_prevFrameImageView);
+		}
 	});
 
 	_mainDeletionQueue.push_function([=]() {
@@ -348,6 +368,22 @@ void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t
 	}
 }
 
+void VulkanEngine::switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd)
+{
+	vk::ImageMemoryBarrier transferToWritable;
+	transferToWritable.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+	transferToWritable.oldLayout = vk::ImageLayout::eUndefined;
+	transferToWritable.newLayout = vk::ImageLayout::eGeneral;
+	transferToWritable.image = image;
+
+	transferToWritable.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+	transferToWritable.subresourceRange.levelCount = 1;
+	transferToWritable.subresourceRange.layerCount = 1;
+
+	cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+		{}, {}, {}, transferToWritable);
+}
+
 FrameData& VulkanEngine::get_current_frame()
 {
 	return _frames[_frameNumber % FRAME_OVERLAP];
@@ -460,7 +496,7 @@ void VulkanEngine::init_gbuffer_attachments()
 }
 
 void VulkanEngine::create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
-	vk::Image* image)
+	vk::Image* image, vk::ImageView* imageView)
 {
 	vk::ImageAspectFlags aspectMask;
 	vk::ImageLayout imageLayout = {};
@@ -509,10 +545,21 @@ void VulkanEngine::create_attachment(vk::Format format, vk::ImageUsageFlagBits u
 	attachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
 	attachmentInfo.clearValue = clearValue;
 
+	if (imageView)
+	{
+		*imageView = attachmentView;
+	}
+
 	_mainDeletionQueue.push_function([=]() {
 		vmaDestroyImage(_allocator, attachment._image, attachment._allocation);
 		_device.destroyImageView(attachmentView);
 	});
+}
+
+void VulkanEngine::init_prepass_attachments()
+{
+	create_attachment(_motionVectorFormat, vk::ImageUsageFlagBits::eColorAttachment, _motionVectorAttachment,
+		&_motionVectorImage, &_motionVectorImageView);
 }
 
 void VulkanEngine::init_raytracing()
@@ -559,8 +606,8 @@ void VulkanEngine::init_descriptors()
 		{ vk::DescriptorType::eUniformBuffer, 10 },
 		{ vk::DescriptorType::eUniformBufferDynamic, 10 },
 		{ vk::DescriptorType::eStorageBuffer, 10 },
-		{ vk::DescriptorType::eCombinedImageSampler, 20 },
-		{ vk::DescriptorType::eAccelerationStructureKHR, 1 }
+		{ vk::DescriptorType::eCombinedImageSampler, 500 },
+		{ vk::DescriptorType::eAccelerationStructureKHR, 10 }
 	};
 	
 	vk::DescriptorPoolCreateInfo poolInfo = {};
@@ -626,14 +673,14 @@ void VulkanEngine::init_descriptors()
 
 	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
 
-	vk::DescriptorSetLayoutCreateInfo texSetInfo = c.get<vk::DescriptorSetLayoutCreateInfo>();
+	auto& texSetInfo = c.get<vk::DescriptorSetLayoutCreateInfo>();
 	texSetInfo.setBindings(textureBind);
 
 	// Allow for usage of unwritten descriptor sets and variable size arrays of textures
 	vk::DescriptorBindingFlags bindFlags = vk::DescriptorBindingFlagBits::ePartiallyBound |
 		vk::DescriptorBindingFlagBits::eVariableDescriptorCount;
 
-	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindFlagsInfo = c.get<vk::DescriptorSetLayoutBindingFlagsCreateInfo>();
+	auto& bindFlagsInfo = c.get<vk::DescriptorSetLayoutBindingFlagsCreateInfo>();
 	bindFlagsInfo.setBindingFlags(bindFlags);
 
 	_textureSetLayout = _device.createDescriptorSetLayout(texSetInfo);
@@ -1113,6 +1160,38 @@ void VulkanEngine::init_pipelines()
 
 	_postPassPipeline = pipelineBuilder.buildPipeline(_device);
 
+	// init motion vector pass pipeline
+
+	vk::ShaderModule motionVectorFragmentShader;
+
+	if (!load_shader_module("../../../shaders/motion_vectors.frag.spv", &motionVectorFragmentShader))
+	{
+		std::cout << "Error building motion vector fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Motion vector fragment shader loaded successfully" << std::endl;
+	}
+
+	vk::PipelineLayoutCreateInfo mvPipelineLayoutInfo;
+	mvPipelineLayoutInfo.setSetLayouts(_globalSetLayout);
+
+	_mvPassPipelineLayout = _device.createPipelineLayout(mvPipelineLayoutInfo);
+	pipelineBuilder._pipelineLayout = _mvPassPipelineLayout;
+
+	vk::PipelineRenderingCreateInfo mvPipelineRenderingInfo;
+	mvPipelineRenderingInfo.setColorAttachmentFormats(_motionVectorFormat);
+	mvPipelineRenderingInfo.setDepthAttachmentFormat(_depthFormat);
+
+	pipelineBuilder._renderingCreateInfo = mvPipelineRenderingInfo;
+	pipelineBuilder._shaderStages.clear();
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
+		postPassVertexShader));
+	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
+		motionVectorFragmentShader));
+
+	_mvPassPipeline = pipelineBuilder.buildPipeline(_device);
+
 	// shader modules are now built into the pipelines, we don't need them anymore
 
 	_device.destroyShaderModule(meshVertShader);
@@ -1124,6 +1203,7 @@ void VulkanEngine::init_pipelines()
 	_device.destroyShaderModule(postPassVertexShader);
 	_device.destroyShaderModule(fxaaFragmentShader);
 	_device.destroyShaderModule(denoiserFragmentShader);
+	_device.destroyShaderModule(motionVectorFragmentShader);
 	_device.destroyShaderModule(skyboxVertShader);
 	_device.destroyShaderModule(skyboxFragShader);
 
@@ -1132,11 +1212,13 @@ void VulkanEngine::init_pipelines()
 		_device.destroyPipeline(_lightingPassPipeline);
 		_device.destroyPipeline(skyboxPipeline);
 		_device.destroyPipeline(_postPassPipeline);
+		_device.destroyPipeline(_mvPassPipeline);
 		
 		_device.destroyPipelineLayout(texturedPipelineLayout);
 		_device.destroyPipelineLayout(skyboxPipelineLayout);
 		_device.destroyPipelineLayout(_lightingPassPipelineLayout);
 		_device.destroyPipelineLayout(_postPassPipelineLayout);
+		_device.destroyPipelineLayout(_mvPassPipelineLayout);
 	});
 }
 
@@ -1250,8 +1332,17 @@ void VulkanEngine::init_rt_descriptors()
 	vk::DescriptorSetLayoutBinding outImageBinding = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eStorageImage,
 		vk::ShaderStageFlagBits::eRaygenKHR, 0);
 
+	// binding 1 in per frame set for motion vectors
+	vk::DescriptorSetLayoutBinding mvBinding =
+		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eRaygenKHR, 1);
+
+	// binding 2 in per frame set for previous frame as texture
+	vk::DescriptorSetLayoutBinding frameBinding =
+		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eRaygenKHR, 2);
+
 	std::vector<vk::DescriptorPoolSize> poolSizes = {
 		{ vk::DescriptorType::eStorageImage, 10 },
+		{ vk::DescriptorType::eCombinedImageSampler, 10 },
 		{ vk::DescriptorType::eAccelerationStructureKHR, 5 }
 	};
 
@@ -1266,19 +1357,19 @@ void VulkanEngine::init_rt_descriptors()
 		tlasBinding
 	};
 
-	std::vector<vk::DescriptorSetLayoutBinding> outImageSetBindings =
+	std::vector<vk::DescriptorSetLayoutBinding> rtPerFrameSetBindings =
 	{
-		outImageBinding
+		outImageBinding, mvBinding, frameBinding
 	};
 
 	vk::DescriptorSetLayoutCreateInfo rtLayoutInfo;
 	rtLayoutInfo.setBindings(rtSetBindings);
 
-	vk::DescriptorSetLayoutCreateInfo outLayoutInfo;
-	outLayoutInfo.setBindings(outImageSetBindings);
+	vk::DescriptorSetLayoutCreateInfo rtPerFrameLayoutInfo;
+	rtPerFrameLayoutInfo.setBindings(rtPerFrameSetBindings);
 
 	_rtSetLayout = _device.createDescriptorSetLayout(rtLayoutInfo);
-	_rtOutSetLayout = _device.createDescriptorSetLayout(outLayoutInfo);
+	_rtPerFrameSetLayout = _device.createDescriptorSetLayout(rtPerFrameLayoutInfo);
 
 	std::vector<vk::DescriptorSetLayout> rtSetLayouts = {
 		_rtSetLayout
@@ -1286,7 +1377,7 @@ void VulkanEngine::init_rt_descriptors()
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
-		rtSetLayouts.push_back(_rtOutSetLayout);
+		rtSetLayouts.push_back(_rtPerFrameSetLayout);
 	}
 
 	vk::DescriptorSetAllocateInfo rtSetAllocInfo;
@@ -1299,7 +1390,7 @@ void VulkanEngine::init_rt_descriptors()
 
 	for (uint32_t i = 0; i < FRAME_OVERLAP; ++i)
 	{
-		_frames[i]._outImageRTX = allocatedSets[1 + i];
+		_frames[i]._perFrameSetRTX = allocatedSets[1 + i];
 	}
 
 	vk::WriteDescriptorSetAccelerationStructureKHR tlasWriteDescInfo;
@@ -1312,6 +1403,16 @@ void VulkanEngine::init_rt_descriptors()
 	tlasWrite.descriptorType = vk::DescriptorType::eAccelerationStructureKHR;
 	tlasWrite.pNext = &tlasWriteDescInfo;
 
+	// motion vector sampler
+	vk::SamplerCreateInfo mvSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
+		1, 1.0, vk::SamplerAddressMode::eClampToEdge);
+	vk::Sampler mvSampler = _device.createSampler(mvSamplerInfo);
+
+	// previous frame texture sampler
+	vk::SamplerCreateInfo frameSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+		1, 1.0, vk::SamplerAddressMode::eClampToEdge);
+	vk::Sampler frameSampler = _device.createSampler(frameSamplerInfo);
+
 	_device.updateDescriptorSets(tlasWrite, {});
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
@@ -1322,17 +1423,50 @@ void VulkanEngine::init_rt_descriptors()
 
 		vk::WriteDescriptorSet outImageWrite;
 		outImageWrite.dstBinding = 0;
-		outImageWrite.dstSet = _frames[i]._outImageRTX;
+		outImageWrite.dstSet = _frames[i]._perFrameSetRTX;
 		outImageWrite.descriptorCount = 1;
 		outImageWrite.descriptorType = vk::DescriptorType::eStorageImage;
 		outImageWrite.setImageInfo(outImageDescInfo);
 
-		_device.updateDescriptorSets(outImageWrite, {});
+
+		vk::DescriptorImageInfo motionVectorsDescInfo;
+		motionVectorsDescInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		motionVectorsDescInfo.imageView = _motionVectorImageView;
+		motionVectorsDescInfo.sampler = mvSampler;
+
+		vk::WriteDescriptorSet mvImageWrite;
+		mvImageWrite.dstBinding = 1;
+		mvImageWrite.dstSet = _frames[i]._perFrameSetRTX;
+		mvImageWrite.descriptorCount = 1;
+		mvImageWrite.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+		mvImageWrite.setImageInfo(motionVectorsDescInfo);
+
+
+		vk::DescriptorImageInfo frameImageDescInfo;
+		frameImageDescInfo.imageLayout = vk::ImageLayout::eGeneral;
+		frameImageDescInfo.imageView = _prevFrameImageView;
+		frameImageDescInfo.sampler = frameSampler;
+
+		vk::WriteDescriptorSet frameImageWrite;
+		frameImageWrite.dstBinding = 2;
+		frameImageWrite.dstSet = _frames[i]._perFrameSetRTX;
+		frameImageWrite.descriptorCount = 1;
+		frameImageWrite.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+		frameImageWrite.setImageInfo(frameImageDescInfo);
+
+
+		std::vector<vk::WriteDescriptorSet> perFrameWrites = {
+			outImageWrite, mvImageWrite, frameImageWrite
+		};
+
+		_device.updateDescriptorSets(perFrameWrites, {});
 	}
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyDescriptorSetLayout(_rtSetLayout);
-		_device.destroyDescriptorSetLayout(_rtOutSetLayout);
+		_device.destroyDescriptorSetLayout(_rtPerFrameSetLayout);
 		_device.destroyDescriptorPool(_rtDescriptorPool);
+		_device.destroySampler(mvSampler);
+		_device.destroySampler(frameSampler);
 	});
 }
 
@@ -1462,7 +1596,7 @@ void VulkanEngine::init_rt_pipeline()
 	rtPipelineLayoutInfo.setPushConstantRanges(rayPushConstants);
 
 	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = {
-		_rtSetLayout, _rtOutSetLayout, _globalSetLayout, _objectSetLayout, _textureSetLayout,
+		_rtSetLayout, _rtPerFrameSetLayout, _globalSetLayout, _objectSetLayout, _textureSetLayout,
 		_textureSetLayout, _textureSetLayout, _textureSetLayout, _cubemapSetLayout
 	};
 	rtPipelineLayoutInfo.setSetLayouts(rtPipelineSetLayouts);
@@ -1710,10 +1844,9 @@ void VulkanEngine::update_frame()
 	const float fov = _camera._zoom;
 	const glm::vec3 position = _camera._position;
 
-	if (std::memcmp(&refCamMatrix[0][0], &m[0][0], sizeof(glm::mat4)) != 0 || refFov != fov || 
+	if (std::memcmp(&refCamMatrix[0][0], &m[0][0], sizeof(glm::mat4)) != 0 || refFov != fov ||
 		std::memcmp(&refPosition[0], &position[0], sizeof(glm::vec3)) != 0)
 	{
-		reset_frame();
 		refCamMatrix = m;
 		refFov = fov;
 		refPosition = position;
@@ -1828,11 +1961,11 @@ void VulkanEngine::init_scene()
 
 	vk::StructureChain<vk::DescriptorSetAllocateInfo, vk::DescriptorSetVariableDescriptorCountAllocateInfo> descCntC;
 
-	vk::DescriptorSetVariableDescriptorCountAllocateInfo variableDescriptorCountAllocInfo =
+	auto& variableDescriptorCountAllocInfo =
 		descCntC.get<vk::DescriptorSetVariableDescriptorCountAllocateInfo>();
 	variableDescriptorCountAllocInfo.setDescriptorCounts(textureVariableDescCounts);
 
-	vk::DescriptorSetAllocateInfo allocInfo = descCntC.get<vk::DescriptorSetAllocateInfo>();
+	auto& allocInfo = descCntC.get<vk::DescriptorSetAllocateInfo>();
 	allocInfo.setDescriptorPool(_descriptorPool);
 	allocInfo.setSetLayouts(textureSetLayouts);
 
@@ -1972,10 +2105,11 @@ void VulkanEngine::draw()
 
 	cmd.begin(cmdBeginInfo);
 
-	// make clear color dependent on frame number
 	vk::ClearValue clearValue;
-	// float flash = abs(sin(_frameNumber / 120.0f));
 	clearValue.color = vk::ClearColorValue({ 2.0f / 255.0f, 150.0f / 255.0f, 254.0f / 255.0f, 1.0f });
+
+	vk::ClearValue mvClearValue;
+	clearValue.color = vk::ClearColorValue({ 0.0f, 0.0f, 1.0f, 1.0f });
 
 	vk::ClearValue depthClear;
 	depthClear.depthStencil.depth = 1.0f;
@@ -1997,9 +2131,21 @@ void VulkanEngine::draw()
 	skyboxRenderInfo.setColorAttachments(intermediateColorAttachmentInfo);
 	skyboxRenderInfo.setPDepthAttachment(&cubeDepthAttachmentInfo);
 
+
 	vk::RenderingAttachmentInfo lightingDepthAttachmentInfo = vkinit::rendering_attachment_info(_lightingDepthImageView,
 		vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore, depthClear);
 
+	// Motion vector pass
+	vk::RenderingAttachmentInfo motionVectorAttachmentInfo = vkinit::rendering_attachment_info(_motionVectorImageView,
+		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore, mvClearValue);
+
+	vk::RenderingInfo mvPassRenderInfo;
+	mvPassRenderInfo.renderArea.extent = _windowExtent;
+	mvPassRenderInfo.layerCount = 1;
+	mvPassRenderInfo.setColorAttachments(motionVectorAttachmentInfo);
+	mvPassRenderInfo.setPDepthAttachment(&lightingDepthAttachmentInfo);
+
+	// Lighting pass setup
 	_lightingPassInfo.renderArea.extent = _windowExtent;
 	_lightingPassInfo.layerCount = 1;
 	_lightingPassInfo.setColorAttachments(intermediateColorAttachmentInfo);
@@ -2017,6 +2163,8 @@ void VulkanEngine::draw()
 	}
 
 	switch_intermediate_image_layout(cmd, true);
+
+	switch_frame_image_layout(_prevFrameImage, cmd);
 	
 	// ========================================   RENDERING   ========================================
 
@@ -2077,29 +2225,39 @@ void VulkanEngine::draw()
 	}
 	else if (_renderMode == RenderMode::ePathTracing)
 	{
+		cmd.beginRendering(mvPassRenderInfo);
+
+		std::vector<vk::DescriptorSet> mvPassSets = {
+			_globalDescriptor
+		};
+
+		draw_screen_quad(cmd, _mvPassPipelineLayout, _mvPassPipeline, mvPassSets);
+
+		cmd.endRendering();
+
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _motionVectorImage,
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
+
 		trace_rays(cmd, swapchainImageIndex);
 
 		//image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryWrite, vk::ImageLayout::eUndefined,
 		//	vk::ImageLayout::eTransferDstOptimal, _swapchainImages[swapchainImageIndex], vk::ImageAspectFlagBits::eColor,
 		//	vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 
-		vk::ImageBlit blit;
-
-		blit.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
-		blit.srcOffsets[1] = vk::Offset3D{ static_cast<int32_t>(_windowExtent.width),static_cast<int32_t>(_windowExtent.height), 1};
-		blit.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-		blit.srcSubresource.mipLevel = 0;
-		blit.srcSubresource.baseArrayLayer = 0;
-		blit.srcSubresource.layerCount = 1;
-		blit.dstOffsets[0] = vk::Offset3D{ 0, 0, 0 };
-		blit.dstOffsets[1] = blit.srcOffsets[1];
-		blit.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-		blit.dstSubresource.mipLevel = 0;
-		blit.dstSubresource.baseArrayLayer = 0;
-		blit.dstSubresource.layerCount = 1;
+		image_layout_transition(cmd, vk::AccessFlagBits::eShaderRead, {},
+			vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal, _prevFrameImage,
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eRayTracingShaderKHR, vk::PipelineStageFlagBits::eVertexShader);
 
 		image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
-			vk::ImageLayout::eGeneral, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImage,
+			vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal, _intermediateImage,
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
+
+		copy_image(cmd, vk::ImageAspectFlagBits::eColor, _intermediateImage, vk::ImageLayout::eTransferSrcOptimal,
+			_prevFrameImage, vk::ImageLayout::eTransferDstOptimal, _windowExtent3D);
+
+		image_layout_transition(cmd, vk::AccessFlagBits::eColorAttachmentWrite, {},
+			vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, _intermediateImage,
 			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eVertexShader);
 
 		switch_intermediate_image_layout(cmd, false);
@@ -2114,9 +2272,6 @@ void VulkanEngine::draw()
 		draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
 
 		cmd.endRendering();
-
-		//cmd.blitImage(_intermediateImage, vk::ImageLayout::eGeneral,
-		//	_swapchainImages[swapchainImageIndex], vk::ImageLayout::eTransferDstOptimal, blit, vk::Filter::eLinear);
 	}
 
 	// ======================================== END RENDERING ========================================
@@ -2127,6 +2282,8 @@ void VulkanEngine::draw()
 
 	// stop recording to command buffer (we can no longer add commands, but it can now be submitted and executed)
 	cmd.end();
+
+	_prevCamera = _camera;
 
 	// prepare the vk::Queue submission
 	// wait for the present semaphore to present image
@@ -2226,6 +2383,22 @@ AllocatedImage VulkanEngine::create_image(const vk::ImageCreateInfo& createInfo,
 	return newImage;
 }
 
+void VulkanEngine::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
+	vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent)
+{
+	vk::ImageCopy copyInfo;
+	copyInfo.srcSubresource.aspectMask = aspectMask;
+	copyInfo.srcSubresource.layerCount = 1;
+	copyInfo.srcSubresource.mipLevel = 0;
+	copyInfo.srcSubresource.baseArrayLayer = 0;
+	copyInfo.dstSubresource = copyInfo.srcSubresource;
+	copyInfo.extent = extent;
+	copyInfo.srcOffset = { { 0, 0, 0 } };
+	copyInfo.dstOffset = { { 0, 0, 0 } };
+
+	cmd.copyImage(srcImage, srcImageLayout, dstImage, dstImageLayout, copyInfo);
+}
+
 vk::DeviceAddress VulkanEngine::get_buffer_device_address(vk::Buffer buffer)
 {
 	vk::BufferDeviceAddressInfo bufferAddressInfo;
@@ -2303,7 +2476,7 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom),
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -2312,6 +2485,15 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 	camData.invView = glm::inverse(view);
 	camData.proj = projection;
 	camData.viewproj = projection * view;
+	camData.invProj = glm::inverse(projection);
+	camData.invViewProj = glm::inverse(camData.viewproj);
+	
+	glm::mat4 prevView = _prevCamera.get_view_matrix();
+	glm::mat4 prevProjection = glm::perspectiveRH_ZO(glm::radians(_prevCamera._zoom),
+		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
+	prevProjection[1][1] *= -1;
+	
+	camData.prevViewProj = prevProjection * prevView;
 
 	_sceneParameters.pointLights[0].position = glm::vec4{ _centralLightPos, 0.0f };
 
@@ -2493,9 +2675,20 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pi
 {
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 
+	int frameIndex = _frameNumber % FRAME_OVERLAP;
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
+		sizeof(GPUSceneData)) * frameIndex);
+
 	for (uint32_t i = 0; i < descriptorSets.size(); ++i)
 	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], {});
+		if (descriptorSets[i] == _globalDescriptor)
+		{
+			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], uniformOffset);
+		}
+		else
+		{
+			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], {});
+		}
 	}
 
 	cmd.draw(3, 1, 0, 0);
@@ -2601,7 +2794,7 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	FrameData& currentFrame = _frames[swapchainImageIndex];
 
 	std::vector<vk::DescriptorSet> rtSets = {
-		_rtDescriptorSet, currentFrame._outImageRTX, _globalDescriptor
+		_rtDescriptorSet, currentFrame._perFrameSetRTX, _globalDescriptor
 	};
 
 	for (auto& descSet : _texDescriptorSets)
@@ -2614,8 +2807,8 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eOutImage, 
-		currentFrame._outImageRTX, {});
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::ePerFrame,
+		currentFrame._perFrameSetRTX, {});
 
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
 		sizeof(GPUSceneData)) * frameIndex);

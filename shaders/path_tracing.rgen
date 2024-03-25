@@ -4,10 +4,16 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_ARB_shader_clock : enable
 
+#define FLT_EPS 0.00000001
+
 #include "host_device_common.h"
 
 layout (set = eGeneralRTX, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout (set = eOutImage, binding = 0, rgba32f) uniform image2D outImage;
+
+layout (set = ePerFrame, binding = 0, rgba32f) uniform image2D outImage;
+layout (set = ePerFrame, binding = 1) uniform sampler2D motionVectors;
+layout (set = ePerFrame, binding = 2) uniform sampler2D frameTexture;
+
 layout (set = eGlobal, binding = 0) uniform CameraBuffer
 {
 	CameraData camData;
@@ -23,6 +29,19 @@ layout (push_constant) uniform constants
 
 layout (location = 0) rayPayloadEXT hitPayload prd;
 
+vec2 hiresToLowres(ivec2 ipos, vec2 jitterOffset)
+{
+    vec2 inputSize = vec2(gl_LaunchSizeEXT);
+    vec2 outputSize = vec2(gl_LaunchSizeEXT);
+
+    return (vec2(ipos) + vec2(0.5)) * (inputSize / outputSize) - jitterOffset;
+}
+
+float getSampleWeight(vec2 delta, float scale)
+{
+    return clamp(1 - scale * dot(delta, delta), 0, 1);
+}
+
 void main()
 {
 	uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, uint(clockARB()));
@@ -30,16 +49,16 @@ void main()
 	float r1 = rng(seed);
 	float r2 = rng(seed);
 
-	vec2 subpixelJitter = (rayConstants.frame == 0) ? vec2(0.5) : vec2(r1, r2);
+	vec2 subpixelJitter = vec2(r1, r2) - vec2(0.5);
 
-	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + subpixelJitter;
+	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5) + subpixelJitter;
 	const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
 	vec2 d = inUV * 2.0 - 1.0;
 
 	vec4 origin = camSceneData.camData.invView[3];
-	vec4 target = inverse(camSceneData.camData.proj) * vec4(d.x, d.y, 1, 1);
+	vec4 target = camSceneData.camData.invProj * vec4(d.x, d.y, 1, 1);
 	vec4 direction = camSceneData.camData.invView * vec4(normalize(target.xyz), 0);
-
+	
 	uint rayFlags = gl_RayFlagsNoneEXT;
 	float tMin = 0.001;
 	float tMax = 10000.0;
@@ -50,9 +69,12 @@ void main()
 	prd.rayOrigin = origin.xyz;
 	prd.rayDirection = direction.xyz;
 	prd.weight = vec3(0.0);
+	prd.hitPosition = origin.xyz + direction.xyz * tMax;
 
 	vec3 curWeight = vec3(1.0);
 	vec3 hitValue = vec3(0.0);
+	
+	vec3 primaryPos = vec3(0.0);
 
 	for (; prd.depth < 12; ++prd.depth)
 	{
@@ -72,6 +94,11 @@ void main()
 		hitValue += prd.hitValue * curWeight;
 		curWeight *= prd.weight;
 
+		if (prd.depth == 0)
+		{
+			primaryPos = prd.hitPosition;
+		}
+
 		// Russian roulette path termination
 		if (prd.depth > 2)
 		{
@@ -86,8 +113,40 @@ void main()
 
 	if (rayConstants.frame > 0)
 	{
-		float a = 1.0 / float(rayConstants.frame + 1);
-		vec3 oldColor = imageLoad(outImage, ivec2(gl_LaunchIDEXT.xy)).xyz;
+		vec2 frameUV = vec2(gl_LaunchIDEXT.xy) / gl_LaunchSizeEXT.xy;
+
+		vec3 posWsCurr = primaryPos;
+		vec3 posWsPrev = primaryPos;
+
+		vec4 screenPosCurr = (camSceneData.camData.viewproj * vec4(posWsCurr, 1));
+		screenPosCurr /= screenPosCurr.w;
+
+		vec4 screenPosPrev = (camSceneData.camData.prevViewProj * vec4(posWsPrev, 1));
+		screenPosPrev /= screenPosPrev.w;
+
+		vec2 prevUV = screenPosPrev.xy * 0.5 + 0.5;
+		vec2 currUV = screenPosCurr.xy * 0.5 + 0.5;
+
+		vec2 motion;
+		motion.xy = prevUV - currUV + vec2(0.5) / vec2(gl_LaunchSizeEXT.xy);
+
+		float uvDiffLength = length(motion);
+
+		vec2 nearestRenderPos = hiresToLowres(ivec2(gl_LaunchIDEXT.xy), subpixelJitter);
+		ivec2 intRenderPos = ivec2(round(nearestRenderPos.x), round(nearestRenderPos.y));
+		intRenderPos = clamp(intRenderPos, ivec2(0), ivec2(gl_LaunchSizeEXT.x - 1, gl_LaunchSizeEXT.y - 1));
+
+		float motionWeight = smoothstep(0, 1.0, uvDiffLength);
+		float sampleWeight = getSampleWeight(nearestRenderPos - intRenderPos, 1.0);
+
+		float a = clamp(max(smoothstep(0, 1.0, uvDiffLength), sampleWeight) * 0.1, 0.0, 1.0);
+		vec3 oldColor = texture(frameTexture, gl_LaunchIDEXT.xy / vec2(gl_LaunchSizeEXT.xy) + motion).xyz;
+
+		if (clamp(prevUV, 0.0, 1.0) != prevUV)
+		{
+			a = 1.0;
+		}
+
 		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(mix(oldColor, hitValue, a), 1.0));
 	}
 	else

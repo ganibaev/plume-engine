@@ -56,6 +56,8 @@ void main()
 	const vec3 pos = v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
 	const vec3 worldPos = vec3(gl_ObjectToWorldEXT * vec4(pos, 1.0));
 
+	prd.hitPosition = worldPos;
+
 	int matID = currentObject.matIndex;
 
 	// compute hit point normal

@@ -62,7 +62,7 @@ public:
 	{
 		return glm::lookAt(_position, _position + _front, _up);
 	}
-	
+
 	void process_keyboard(CameraMovement direction, float timeDelta);
 	void process_camera_movement(float xOffset, float yOffset, bool constrainPitch = true);
 	void process_mouse_scroll(float yOffset);

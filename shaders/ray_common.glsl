@@ -6,4 +6,5 @@ struct hitPayload
 	vec3 rayOrigin;
 	vec3 rayDirection;
 	vec3 weight;
+	vec3 hitPosition;
 };
