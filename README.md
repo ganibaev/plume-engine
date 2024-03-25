@@ -1,8 +1,8 @@
 # Plume Engine
 
-![plume-v0 15](https://github.com/ganibaev/plume-engine/assets/55918604/8155572f-0387-4d26-9757-42ad6d82ca79)
-![plume-v0 15EXT](https://github.com/ganibaev/plume-engine/assets/55918604/40bc3e6e-3197-4e6e-b672-3c7bfa58a1e0)
-![plume-v0 14EXT](https://github.com/ganibaev/plume-engine/assets/55918604/d86f749c-7511-453e-9cda-1b04d3aefabd)
+![plume-v0 16](https://github.com/ganibaev/plume-engine/assets/55918604/9ce43291-aeba-4681-944a-02287ca8898a)
+![plume-v0 16EXT](https://github.com/ganibaev/plume-engine/assets/55918604/c30e2887-3fbc-4172-adc0-e274f0b398a5)
+![plume-v0 16EXT2](https://github.com/ganibaev/plume-engine/assets/55918604/af016d77-5ff1-4a9f-a3db-88769498fa7e)
 ***Pic 1, 2, 3:** Rendered in path tracing mode.*
 
 ![plume-v0 13](https://github.com/ganibaev/plume-engine/assets/55918604/047ae73f-af23-46d3-8ef9-f62027e21ce6)
