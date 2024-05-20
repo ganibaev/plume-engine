@@ -43,7 +43,7 @@ namespace vkinit {
 	vk::WriteDescriptorSet write_descriptor_buffer(vk::DescriptorType type, vk::DescriptorSet dstSet,
 		vk::DescriptorBufferInfo* bufferInfo, uint32_t binding);
 
-	vk::SamplerCreateInfo sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, uint32_t mipLevels = 1,
+	vk::SamplerCreateInfo sampler_create_info(vk::Filter magFilter, vk::Filter minFilter,
 		float maxLod = VK_LOD_CLAMP_NONE, vk::SamplerAddressMode samplerAddressMode = vk::SamplerAddressMode::eRepeat);
 	vk::WriteDescriptorSet write_descriptor_image(vk::DescriptorType type, vk::DescriptorSet dstSet,
 		vk::DescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount = 1);

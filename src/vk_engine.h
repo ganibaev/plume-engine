@@ -2,12 +2,11 @@
 
 #include "vk_types.h"
 #include <vector>
-#include <deque>
 #include <tuple>
-#include <functional>
 #include <string>
 #include <iostream>
 
+#include "vk_descriptors.h"
 #include "vk_camera.h"
 #include "vk_mesh.h"
 
@@ -66,13 +65,10 @@ public:
 
 struct MaterialSet
 {
-	vk::DescriptorSet diffuseTextureSet;
-	vk::DescriptorSet metallicTextureSet;
-	vk::DescriptorSet roughnessTextureSet;
-	vk::DescriptorSet normalMapSet;
-	vk::DescriptorSet skyboxSet;
 	vk::Pipeline pipeline;
 	vk::PipelineLayout pipelineLayout;
+
+	DescriptorSetFlags usedDescriptorSets;
 };
 
 struct UploadContext
@@ -106,23 +102,6 @@ enum class RenderMode
 	ePathTracing = 1
 };
 
-enum RTXBindings
-{
-	eTlas = 0
-}; 
-
-enum RTXSets
-{
-	eGeneralRTX = 0,
-	ePerFrame = 1,
-	eGlobal = 2,
-	eObjectData = 3,
-	eDiffuseTex = 4,
-	eMetallicTex = 5,
-	eRoughnessTex = 6,
-	eNormalMap = 7,
-	eSkybox = 8
-};
 
 struct MeshPushConstants
 {
@@ -170,7 +149,7 @@ struct GPUObjectData
 	uint64_t vertexBufferAddress = 0;
 	uint64_t indexBufferAddress = 0;
 	glm::vec3 emittance{ 0.0f };
-}; 
+};
 
 struct Texture
 {
@@ -187,31 +166,8 @@ struct FrameData
 	vk::CommandBuffer _mainCommandBuffer;
 
 	AllocatedBuffer _objectBuffer;
-	vk::DescriptorSet _objectDescriptor;
-	vk::DescriptorSet _gBufferDescriptorSet;
-	vk::DescriptorSet _postprocessDescriptorSet;
-
-	vk::DescriptorSet _perFrameSetRTX;
 };
 
-struct DeletionQueue {
-	std::deque<std::function<void()>> deletors;
-
-	void push_function(std::function<void()>&& function)
-	{
-		deletors.push_back(function);
-	}
-
-	void flush()
-	{
-		for (auto& func : deletors)
-		{
-			func();
-		}
-
-		deletors.clear();
-	}
-};
 
 class VulkanEngine {
 public:
@@ -220,8 +176,6 @@ public:
 	int _frameNumber = 0;
 
 	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
-
-	constexpr static uint32_t FRAME_OVERLAP = 3;
 
 	constexpr static float _camSpeed = 0.2f;
 
@@ -255,6 +209,8 @@ public:
 	vk::Device _device; // commands will be executed on this 
 	vk::SurfaceKHR _surface; // window surface
 
+	DescriptorManager _descMng;
+
 	vk::PhysicalDeviceProperties2 _gpuProperties;
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR _rtProperties;
 
@@ -281,26 +237,7 @@ public:
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
 
-	vk::DescriptorPool _rtDescriptorPool;
-	vk::DescriptorSetLayout _rtSetLayout;
-	vk::DescriptorSetLayout _rtPerFrameSetLayout;
-
-	vk::DescriptorSet _rtDescriptorSet;
-
 	RayPushConstants _rayConstants = {};
-
-	vk::DescriptorSetLayout _globalSetLayout;
-	vk::DescriptorSetLayout _tlasSetLayout;
-	vk::DescriptorSetLayout _objectSetLayout;
-	vk::DescriptorPool _descriptorPool;
-
-	vk::DescriptorSet _globalDescriptor;
-	std::vector<vk::DescriptorSet> _texDescriptorSets;
-
-	vk::DescriptorSet _tlasDescriptorSet;
-
-	vk::DescriptorSetLayout _textureSetLayout;
-	vk::DescriptorSetLayout _cubemapSetLayout;
 
 	vk::SwapchainKHR _swapchain;
 
@@ -343,18 +280,6 @@ public:
 	vk::PipelineRenderingCreateInfo _geometryPassPipelineInfo;
 	vk::PipelineRenderingCreateInfo _lightingPassPipelineInfo;
 
-	vk::PipelineLayout _lightingPassPipelineLayout;
-	vk::Pipeline _lightingPassPipeline;
-
-	vk::PipelineLayout _postPassPipelineLayout;
-	vk::Pipeline _postPassPipeline;
-
-	vk::PipelineLayout _mvPassPipelineLayout;
-	vk::Pipeline _mvPassPipeline;
-
-	vk::DescriptorSetLayout _gBufferSetLayout;
-	vk::DescriptorSetLayout _postprocessSetLayout;
-
 	std::array<vk::Image, NUM_GBUFFER_ATTACHMENTS> _gBufferImages;
 	std::array<vk::RenderingAttachmentInfo, NUM_GBUFFER_ATTACHMENTS> _gBufferColorAttachments;
 	vk::RenderingAttachmentInfo _gBufferDepthAttachment;
@@ -366,8 +291,6 @@ public:
 	constexpr static vk::Format _motionVectorFormat = vk::Format::eR32G32Sfloat;
 
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> _rtShaderGroups;
-	vk::PipelineLayout _rtPipelineLayout;
-	vk::Pipeline _rtPipeline;
 
 	AllocatedBuffer _rtSbtBuffer;
 	vk::StridedDeviceAddressRegionKHR _rgenRegion;
@@ -389,26 +312,25 @@ public:
 	
 	std::vector<RenderObject> _renderables;
 
-	std::unordered_map<std::string, MaterialSet> _materialSets;
+	std::array<MaterialSet, static_cast<size_t>(PipelineType::eMaxValue)> _materialSets;
 
 	std::unordered_map<std::string, std::array<Texture, NUM_TEXTURE_TYPES>> _loadedTextures;
 
 	Texture _skybox;
 	RenderObject _skyboxObject;
 
-	// create material set and add to the map
-	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name);
+	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
+		DescriptorSetFlags descSetFlags);
 
-	MaterialSet* get_material_set(const std::string& name);
+	MaterialSet* get_material_set(PipelineType pipelineType);
 
 	Model* get_model(const std::string& name);
 
 	void upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count);
 
 	void draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count);
-	void draw_lighting_pass(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline);
-	void draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline,
-		const std::vector<vk::DescriptorSet>& descriptorSets);
+	void draw_lighting_pass(vk::CommandBuffer cmd);
+	void draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType);
 	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
 
 	void trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex);
@@ -433,9 +355,6 @@ private:
 	void init_descriptors();
 
 	void init_pipelines();
-
-	void fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>& texBufferInfos,
-		const std::vector<std::string>& texNames, Model* model, uint32_t texSlot);
 
 	void init_scene();
 

@@ -52,12 +52,12 @@ struct RayPushConstants
 };
 
 const uint // enum RTXSets
-	eGeneralRTX = 0,
-	ePerFrame = 1,
-	eGlobal = 2,
-	eObjectData = 3,
-	eDiffuseTex = 4,
-	eMetallicTex = 5,
-	eRoughnessTex = 6,
-	eNormalMap = 7,
-	eSkybox = 8;
+	eDiffuseTex = 0,
+	eMetallicTex = 1,
+	eRoughnessTex = 2,
+	eNormalMap = 3,
+	eSkybox = 4,
+	eObjectData = 5,
+	ePerFrame = 6,
+	eGeneralRTX = 7,
+	eGlobal = 8;

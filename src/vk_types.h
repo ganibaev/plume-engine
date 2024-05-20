@@ -7,6 +7,11 @@
 #define VMA_DEBUG_LOG_FORMAT
 #include "vk_mem_alloc.h"
 
+#include <deque>
+#include <functional>
+
+constexpr uint32_t FRAME_OVERLAP = 3;
+
 struct AllocatedBuffer
 {
 	vk::Buffer _buffer;
@@ -18,6 +23,18 @@ enum class ImageType
 	eTexture = 0,
 	eCubemap = 1,
 	eRTXOutput = 2
+};
+
+enum class PipelineType
+{
+	eGeometryPass = 0,
+	eLightingPass,
+	ePostprocess,
+	eSkybox,
+	eMotionVectors,
+	eRayTracing,
+
+	eMaxValue
 };
 
 struct AllocatedImage
@@ -50,4 +67,23 @@ struct AccelerationStructureBuild
 
 	AccelerationStructure _as;
 	AccelerationStructure _cleanupAs;
+};
+
+struct DeletionQueue {
+	std::deque<std::function<void()>> deletors;
+
+	void push_function(std::function<void()>&& function)
+	{
+		deletors.push_back(function);
+	}
+
+	void flush()
+	{
+		for (auto& func : deletors)
+		{
+			func();
+		}
+
+		deletors.clear();
+	}
 };

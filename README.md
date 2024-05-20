@@ -19,7 +19,8 @@ The engine also has smooth mouse and WASD camera movement (with LShift to move u
 
 ## Work in progress (loosely arranged in order of priority)
 
-* Descriptor system refactoring
+* ImGUI
+* Texture system overhaul
 * Motion vector filtering
 * GI for Hybrid mode
 * ReSTIR, ReSTIR GI

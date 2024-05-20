@@ -273,7 +273,7 @@ vk::WriteDescriptorSet vkinit::write_descriptor_buffer(vk::DescriptorType type, 
 	return write;
 }
 
-vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, uint32_t mipLevels /* = 1 */, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = VK_SAMPLER_ADDRESS_MODE_REPEAT */)
+vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = VK_SAMPLER_ADDRESS_MODE_REPEAT */)
 {
 	vk::SamplerCreateInfo info = {};
 	

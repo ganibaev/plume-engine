@@ -24,6 +24,7 @@ struct CameraData
 	mat4 invView;
 	mat4 proj;
 	mat4 viewproj;
+	mat4 pad[3];
 };
 
 struct SceneData
@@ -45,18 +46,18 @@ struct PointLight
 	vec4 color;
 };
 
-layout (set = 0, binding = 0) uniform CameraBuffer
+layout (set = 1, binding = 0) uniform CameraBuffer
 {
 	CameraData camData;
 	SceneData sceneData;
 	DirectionalLight dirLight;
 	PointLight pointLights[NUM_LIGHTS];
-} camSceneData;
+} camSceneBuffer;
 
-layout (set = 1, binding = 0) uniform sampler2D positionTex;
-layout (set = 1, binding = 1) uniform sampler2D normalTex;
-layout (set = 1, binding = 2) uniform sampler2D albedoTex;
-layout (set = 1, binding = 3) uniform sampler2D metallicRoughnessTex;
+layout (set = 0, binding = 0) uniform sampler2D positionTex;
+layout (set = 0, binding = 1) uniform sampler2D normalTex;
+layout (set = 0, binding = 2) uniform sampler2D albedoTex;
+layout (set = 0, binding = 3) uniform sampler2D metallicRoughnessTex;
 
 layout (set = 2 + TLAS_SLOT, binding = 0) uniform accelerationStructureEXT topLevelAS;
 
@@ -99,14 +100,14 @@ void main()
 	float roughness = roughnessMetallic.g;
 	float metallic = roughnessMetallic.b;
 
-	vec3 camPosWorld = camSceneData.camData.invView[3].xyz;
+	vec3 camPosWorld = camSceneBuffer.camData.invView[3].xyz;
 	vec3 viewDirection = normalize(camPosWorld - fragPosWorld);
 
 	// ambient
-	vec3 ambientLight = camSceneData.sceneData.ambientLight.rgb * camSceneData.sceneData.ambientLight.a;
+	vec3 ambientLight = camSceneBuffer.sceneData.ambientLight.rgb * camSceneBuffer.sceneData.ambientLight.a;
 
 	// directional light
-	vec3 dirToLightDir = normalize(-camSceneData.dirLight.direction.xyz);
+	vec3 dirToLightDir = normalize(-camSceneBuffer.dirLight.direction.xyz);
 
 	vec3 N = normalize(surfaceNormal);
 	vec3 V = viewDirection;
@@ -115,7 +116,7 @@ void main()
 
 	vec3 Lo = vec3(0.0);
 
-	vec3 dirRadiance = camSceneData.dirLight.color.rgb * camSceneData.dirLight.direction.w;
+	vec3 dirRadiance = camSceneBuffer.dirLight.color.rgb * camSceneBuffer.dirLight.direction.w;
 
 	vec3 dirContrib = BRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial) * dirDotNL * dirRadiance;
 
@@ -128,16 +129,16 @@ void main()
 	
 	for (int i = 0; i < NUM_LIGHTS; ++i)
 	{
-		if (camSceneData.pointLights[i].color.w < 0.01)
+		if (camSceneBuffer.pointLights[i].color.w < 0.01)
 		{
 			continue;
 		}
 
-		vec3 dirToLight = camSceneData.pointLights[i].position.xyz - fragPosWorld;
+		vec3 dirToLight = camSceneBuffer.pointLights[i].position.xyz - fragPosWorld;
 		vec3 L = normalize(dirToLight);
 		float distancePoint = length(dirToLight);
 		float attenuation = 1.0 / dot(dirToLight, dirToLight);
-		vec3 radiance = camSceneData.pointLights[i].color.rgb * camSceneData.pointLights[i].color.a * attenuation;
+		vec3 radiance = camSceneBuffer.pointLights[i].color.rgb * camSceneBuffer.pointLights[i].color.a * attenuation;
 		float pointDotNL = clamp(dot(N, L), 0.0, 1.0);
 
 		vec3 contrib = BRDF(L, V, N, metallic, roughness, diffuseMaterial) * pointDotNL * radiance;

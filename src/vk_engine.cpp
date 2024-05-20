@@ -39,6 +39,8 @@ void VulkanEngine::init()
 	// load core Vulkan structures
 	init_vulkan();
 
+	_descMng.init(&_device, &_mainDeletionQueue);
+
 	init_swapchain();
 
 	init_commands();
@@ -53,11 +55,9 @@ void VulkanEngine::init()
 
 	load_meshes();
 
-	init_descriptors();
-
-	init_pipelines();
-
 	load_images();
+
+	init_descriptors();
 
 	init_scene();
 
@@ -68,11 +68,20 @@ void VulkanEngine::init()
 	if (_renderMode == RenderMode::ePathTracing)
 	{
 		init_rt_descriptors();
+	}
 
+	_descMng.allocate_sets();
+
+	init_pipelines();
+
+	if (_renderMode == RenderMode::ePathTracing)
+	{
 		init_rt_pipeline();
 
 		init_shader_binding_table();
 	}
+
+	_descMng.update_sets();
 
 	// everything went well
 	_isInitialized = true;
@@ -533,7 +542,7 @@ void VulkanEngine::create_attachment(vk::Format format, vk::ImageUsageFlagBits u
 	{
 		*image = attachment._image;
 	}
-	
+
 
 	vk::ImageViewCreateInfo viewCreateInfo = vkinit::image_view_create_info(format, attachment._image, aspectMask, 1);
 
@@ -602,254 +611,104 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptors()
 {
-	std::vector<vk::DescriptorPoolSize> poolSizes = { 
-		{ vk::DescriptorType::eUniformBuffer, 10 },
-		{ vk::DescriptorType::eUniformBufferDynamic, 10 },
-		{ vk::DescriptorType::eStorageBuffer, 10 },
-		{ vk::DescriptorType::eCombinedImageSampler, 500 },
-		{ vk::DescriptorType::eAccelerationStructureKHR, 10 }
-	};
-	
-	vk::DescriptorPoolCreateInfo poolInfo = {};
-	poolInfo.maxSets = 100;
-	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-	poolInfo.pPoolSizes = poolSizes.data();
-
-	_descriptorPool = _device.createDescriptorPool(poolInfo);
-
-	vk::DescriptorSetLayoutBinding tlasBinding =
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eAccelerationStructureKHR, vk::ShaderStageFlagBits::eFragment, 0);
-
-	vk::DescriptorSetLayoutCreateInfo tlasLayoutInfo;
-	tlasLayoutInfo.setBindings(tlasBinding);
-
-	_tlasSetLayout = _device.createDescriptorSetLayout(tlasLayoutInfo);
-
-	vk::DescriptorSetAllocateInfo tlasSetAllocInfo;
-	tlasSetAllocInfo.descriptorPool = _descriptorPool;
-	tlasSetAllocInfo.setSetLayouts(_tlasSetLayout);
-	tlasSetAllocInfo.descriptorSetCount = 1;
-
-	_tlasDescriptorSet = _device.allocateDescriptorSets(tlasSetAllocInfo)[0];
-
-	vk::DescriptorSetLayoutBinding camSceneBufferBinding = 
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eUniformBufferDynamic, vk::ShaderStageFlagBits::eVertex |
-			vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR, 0);
-
-	vk::DescriptorSetLayoutBinding bindings[] = { camSceneBufferBinding };
-
-	vk::DescriptorSetLayoutCreateInfo setInfo = {};
-	setInfo.bindingCount = 1;
-	setInfo.pBindings = bindings;
-
-	_globalSetLayout = _device.createDescriptorSetLayout(setInfo);
-
-	vk::DescriptorSetLayoutBinding objectBufferBinding = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
-		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, 0);
-	
-	vk::DescriptorSetLayoutCreateInfo objSetInfo = {};
-	objSetInfo.bindingCount = 1;
-	objSetInfo.pBindings = &objectBufferBinding;
-
-	_objectSetLayout = _device.createDescriptorSetLayout(objSetInfo);
-
 	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData));
 
-	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-	vk::DescriptorSetAllocateInfo allocInfo = {};
-	allocInfo.descriptorPool = _descriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &_globalSetLayout;
+	BufferInfo camSceneBufferInfo;
+	camSceneBufferInfo.buffer = _camSceneBuffer._buffer;
+	camSceneBufferInfo.bufferType = vk::DescriptorType::eUniformBufferDynamic;
+	camSceneBufferInfo.offset = 0;
+	camSceneBufferInfo.range = sizeof(GPUCameraData) + sizeof(GPUSceneData);
 
-	_globalDescriptor = _device.allocateDescriptorSets(allocInfo)[0];
+	_descMng.register_buffer(RegisteredDescriptorSet::eGlobal, vk::ShaderStageFlagBits::eVertex |
+		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR,
+		{ camSceneBufferInfo }, 0);
 
-	Model* scene = get_model("scene");
+	std::vector<BufferInfo> objectBufferInfos(FRAME_OVERLAP);
 
-	vk::DescriptorSetLayoutBinding textureBind = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler,
-		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, 0,
-		static_cast<uint32_t>(_scene._diffuseTexNames.size()));
+	vk::SamplerCreateInfo gBufferSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
+		1.0, vk::SamplerAddressMode::eClampToEdge);
 
-	vk::StructureChain<vk::DescriptorSetLayoutCreateInfo, vk::DescriptorSetLayoutBindingFlagsCreateInfo> c;
+	vk::Sampler gBufferSampler = _device.createSampler(gBufferSamplerInfo);
 
-	auto& texSetInfo = c.get<vk::DescriptorSetLayoutCreateInfo>();
-	texSetInfo.setBindings(textureBind);
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _camSceneBuffer._buffer, _camSceneBuffer._allocation);
+		_device.destroySampler(gBufferSampler);
+	});
 
-	// Allow for usage of unwritten descriptor sets and variable size arrays of textures
-	vk::DescriptorBindingFlags bindFlags = vk::DescriptorBindingFlagBits::ePartiallyBound |
-		vk::DescriptorBindingFlagBits::eVariableDescriptorCount;
+	std::vector<ImageInfo> postprocessInfos(FRAME_OVERLAP);
 
-	auto& bindFlagsInfo = c.get<vk::DescriptorSetLayoutBindingFlagsCreateInfo>();
-	bindFlagsInfo.setBindingFlags(bindFlags);
-
-	_textureSetLayout = _device.createDescriptorSetLayout(texSetInfo);
-
-	// cubemap set layout
-
-	vk::DescriptorSetLayoutBinding cubemapBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eMissKHR, 0);
-
-	vk::DescriptorSetLayoutCreateInfo cubemapSetInfo;
-	cubemapSetInfo.setBindings(cubemapBind);
-
-	_cubemapSetLayout = _device.createDescriptorSetLayout(cubemapSetInfo);
-
-	// lighting pass GBuffer descriptor set
-
-	vk::DescriptorSetLayoutBinding positionBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, GBUFFER_POSITION_SLOT);
-	vk::DescriptorSetLayoutBinding normalBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, GBUFFER_NORMAL_SLOT);
-	vk::DescriptorSetLayoutBinding albedoBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, GBUFFER_ALBEDO_SLOT);
-	vk::DescriptorSetLayoutBinding metallicRoughnessBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eFragment, GBUFFER_METALLIC_ROUGHNESS_SLOT);
-
-	std::array<vk::DescriptorSetLayoutBinding, NUM_GBUFFER_ATTACHMENTS> gBufferBindings = {
-		positionBind, normalBind, albedoBind, metallicRoughnessBind
-	};
-
-	vk::DescriptorSetLayoutCreateInfo gBufferSetInfo;
-	gBufferSetInfo.setBindings(gBufferBindings);
-
-	_gBufferSetLayout = _device.createDescriptorSetLayout(gBufferSetInfo);
-
-	// postprocess pass descriptor set
-	
-	vk::DescriptorSetLayoutBinding frameTextureBind = vkinit::descriptor_set_layout_binding(
-		vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0);
-
-	vk::DescriptorSetLayoutCreateInfo frameTexSetInfo;
-	frameTexSetInfo.setBindings(frameTextureBind);
-
-	_postprocessSetLayout = _device.createDescriptorSetLayout(frameTexSetInfo);
+	ImageInfo gBufferImageInfo;
+	gBufferImageInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
+	gBufferImageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	gBufferImageInfo.sampler = gBufferSampler;
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		constexpr int MAX_OBJECTS = 10000;
-		_frames[i]._objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS, 
+		_frames[i]._objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS,
 			vk::BufferUsageFlagBits::eStorageBuffer, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-		vk::DescriptorSetAllocateInfo objSetAllocInfo = {};
-		objSetAllocInfo.descriptorPool = _descriptorPool;
-		objSetAllocInfo.setSetLayouts(_objectSetLayout);
-
-		_frames[i]._objectDescriptor = _device.allocateDescriptorSets(objSetAllocInfo)[0];
-
-		vk::DescriptorSetAllocateInfo gBufferSetAllocInfo;
-		gBufferSetAllocInfo.descriptorPool = _descriptorPool;
-		gBufferSetAllocInfo.setSetLayouts(_gBufferSetLayout);
-
-		_frames[i]._gBufferDescriptorSet = _device.allocateDescriptorSets(gBufferSetAllocInfo)[0];
-
-		vk::DescriptorSetAllocateInfo postprocessSetAllocInfo;
-		postprocessSetAllocInfo.descriptorPool = _descriptorPool;
-		postprocessSetAllocInfo.setSetLayouts(_postprocessSetLayout);
-
-		_frames[i]._postprocessDescriptorSet = _device.allocateDescriptorSets(postprocessSetAllocInfo)[0];
-
-		// fill gbuffer descriptor sets
-		vk::SamplerCreateInfo gBufferSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
-			1, 1.0, vk::SamplerAddressMode::eClampToEdge);
-
-		vk::Sampler gBufferSampler = _device.createSampler(gBufferSamplerInfo);
-
-		_mainDeletionQueue.push_function([=]() {
-			_device.destroySampler(gBufferSampler);
-		});
-
-		vk::DescriptorImageInfo positionInfo;
-		positionInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		positionInfo.imageView = _gBufferColorAttachments[GBUFFER_POSITION_SLOT].imageView;
-		positionInfo.sampler = gBufferSampler;
-
-		vk::DescriptorImageInfo normalInfo;
-		normalInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		normalInfo.imageView = _gBufferColorAttachments[GBUFFER_NORMAL_SLOT].imageView;
-		normalInfo.sampler = gBufferSampler;
-
-		vk::DescriptorImageInfo albedoInfo;
-		albedoInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		albedoInfo.imageView = _gBufferColorAttachments[GBUFFER_ALBEDO_SLOT].imageView;
-		albedoInfo.sampler = gBufferSampler;
-
-		vk::DescriptorImageInfo metallicRoughnessInfo;
-		metallicRoughnessInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		metallicRoughnessInfo.imageView = _gBufferColorAttachments[GBUFFER_METALLIC_ROUGHNESS_SLOT].imageView;
-		metallicRoughnessInfo.sampler = gBufferSampler;
-
-		vk::DescriptorBufferInfo camSceneInfo = {};
-		camSceneInfo.buffer = _camSceneBuffer._buffer;
-		camSceneInfo.offset = 0;
-		camSceneInfo.range = sizeof(GPUCameraData) + sizeof(GPUSceneData);
-
-		vk::DescriptorBufferInfo objBufferInfo = {};
-		objBufferInfo.buffer = _frames[i]._objectBuffer._buffer;
-		objBufferInfo.offset = 0;
-		objBufferInfo.range = sizeof(GPUObjectData) * MAX_OBJECTS;
-
-		// use gbuffer sampler for postprocessing pass
-
-		vk::DescriptorImageInfo frameImageInfo;
-		frameImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		frameImageInfo.imageView = _intermediateImageView;
-		frameImageInfo.sampler = gBufferSampler;
-
-		vk::WriteDescriptorSet positionWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-			_frames[i]._gBufferDescriptorSet, &positionInfo, GBUFFER_POSITION_SLOT);
-		vk::WriteDescriptorSet normalWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-			_frames[i]._gBufferDescriptorSet, &normalInfo, GBUFFER_NORMAL_SLOT);
-		vk::WriteDescriptorSet albedoWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-			_frames[i]._gBufferDescriptorSet, &albedoInfo, GBUFFER_ALBEDO_SLOT);
-		vk::WriteDescriptorSet metallicRoughnessWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-			_frames[i]._gBufferDescriptorSet, &metallicRoughnessInfo, GBUFFER_METALLIC_ROUGHNESS_SLOT);
-
-		vk::WriteDescriptorSet camSceneWrite = vkinit::write_descriptor_buffer(
-			vk::DescriptorType::eUniformBufferDynamic, _globalDescriptor, &camSceneInfo, 0);
-		
-		vk::WriteDescriptorSet objectWrite = vkinit::write_descriptor_buffer(
-			vk::DescriptorType::eStorageBuffer, _frames[i]._objectDescriptor, &objBufferInfo, 0);
-
-		vk::WriteDescriptorSet postprocessWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-			_frames[i]._postprocessDescriptorSet, &frameImageInfo, 0);
-		
-		vk::WriteDescriptorSet setWrites[] = { positionWrite, normalWrite, albedoWrite, metallicRoughnessWrite,
-			camSceneWrite, objectWrite, postprocessWrite };
-
-		_device.updateDescriptorSets(setWrites, {});
 
 		_mainDeletionQueue.push_function([=]() {
 			vmaDestroyBuffer(_allocator, static_cast<VkBuffer>(_frames[i]._objectBuffer._buffer),
-				_frames[i]._objectBuffer._allocation);
+			_frames[i]._objectBuffer._allocation);
 		});
+
+		objectBufferInfos[i].buffer = _frames[i]._objectBuffer._buffer;
+		objectBufferInfos[i].bufferType = vk::DescriptorType::eStorageBuffer;
+		objectBufferInfos[i].offset = 0;
+		objectBufferInfos[i].range = sizeof(GPUObjectData) * MAX_OBJECTS;
+
+		postprocessInfos[i] = gBufferImageInfo;
+		postprocessInfos[i].imageView = _intermediateImageView;
 	}
 
-	_mainDeletionQueue.push_function([=]() {
-		vmaDestroyBuffer(_allocator, _camSceneBuffer._buffer, _camSceneBuffer._allocation);
-		_device.destroyDescriptorSetLayout(_tlasSetLayout);
-		_device.destroyDescriptorSetLayout(_globalSetLayout);
-		_device.destroyDescriptorSetLayout(_objectSetLayout);
-		_device.destroyDescriptorSetLayout(_textureSetLayout);
-		_device.destroyDescriptorSetLayout(_cubemapSetLayout);
-		_device.destroyDescriptorSetLayout(_gBufferSetLayout);
-		_device.destroyDescriptorSetLayout(_postprocessSetLayout);
-		_device.destroyDescriptorPool(_descriptorPool);
-	});
+	ImageInfo positionInfo;
+	ImageInfo normalInfo;
+	ImageInfo albedoInfo;
+	ImageInfo metallicRoughnessInfo;
+
+	positionInfo = gBufferImageInfo;
+	positionInfo.imageView = _gBufferColorAttachments[GBUFFER_POSITION_SLOT].imageView;
+
+	normalInfo = gBufferImageInfo;
+	normalInfo.imageView = _gBufferColorAttachments[GBUFFER_NORMAL_SLOT].imageView;
+
+	albedoInfo = gBufferImageInfo;
+	albedoInfo.imageView = _gBufferColorAttachments[GBUFFER_ALBEDO_SLOT].imageView;
+
+	metallicRoughnessInfo = gBufferImageInfo;
+	metallicRoughnessInfo.imageView = _gBufferColorAttachments[GBUFFER_METALLIC_ROUGHNESS_SLOT].imageView;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eObjects, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, objectBufferInfos, 0, 1, true);
+
+	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { positionInfo },
+		GBUFFER_POSITION_SLOT);
+	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { normalInfo },
+		GBUFFER_NORMAL_SLOT);
+	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { albedoInfo },
+		GBUFFER_ALBEDO_SLOT);
+	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { metallicRoughnessInfo },
+		GBUFFER_METALLIC_ROUGHNESS_SLOT);
+
+	_descMng.register_image(RegisteredDescriptorSet::ePostprocess, vk::ShaderStageFlagBits::eVertex |
+		vk::ShaderStageFlagBits::eFragment, postprocessInfos, 0, 1, false, true);
+
 }
 
 void VulkanEngine::init_pipelines()
 {
-	// init textured forward pipeline
-
 	Model* scene = get_model("scene");
 
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo;
 
-	vk::DescriptorSetLayout texSetLayouts[] = {
-		_globalSetLayout, _objectSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout, _textureSetLayout,
-		_tlasSetLayout
-	};
+	DescriptorSetFlags texturedPipelineUsedDescs = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eObjects |
+		DescriptorSetFlagBits::eDiffuseTextures | DescriptorSetFlagBits::eMetallicTextures |
+		DescriptorSetFlagBits::eRoughnessTextures | DescriptorSetFlagBits::eNormalMapTextures | DescriptorSetFlagBits::eTLAS;
+
+	auto texSetLayouts = _descMng.get_layouts(texturedPipelineUsedDescs);
 
 	texturedPipelineLayoutInfo.setSetLayouts(texSetLayouts);
 
@@ -865,7 +724,10 @@ void VulkanEngine::init_pipelines()
 
 	skyboxPipelineLayoutInfo.setPushConstantRanges(skyboxPushConstants);
 	
-	vk::DescriptorSetLayout skyboxSetLayouts[] = { _globalSetLayout, _objectSetLayout, _cubemapSetLayout };
+	DescriptorSetFlags skyboxPipelineUsedDescs = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eSkyboxTextures;
+
+	auto skyboxSetLayouts = _descMng.get_layouts(skyboxPipelineUsedDescs);
+
 	skyboxPipelineLayoutInfo.setSetLayouts(skyboxSetLayouts);
 
 	vk::PipelineLayout skyboxPipelineLayout = _device.createPipelineLayout(skyboxPipelineLayoutInfo);
@@ -879,7 +741,7 @@ void VulkanEngine::init_pipelines()
 
 	// draw triangle lists via input assembly
 	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(vk::PrimitiveTopology::eTriangleList);
-	
+
 	// use swapchain extents to build viewport and scissor
 	pipelineBuilder._viewport.x = 0.0f;
 	pipelineBuilder._viewport.y = 0.0f;
@@ -995,7 +857,7 @@ void VulkanEngine::init_pipelines()
 		geometryPassFragmentShader));
 
 	vk::Pipeline geometryPassPipeline = pipelineBuilder.buildPipeline(_device);
-	create_material_set(geometryPassPipeline, texturedPipelineLayout, "geometrypass");
+	create_material_set(geometryPassPipeline, texturedPipelineLayout, PipelineType::eGeometryPass, texturedPipelineUsedDescs);
 
 	// init lighting pass pipeline
 
@@ -1023,15 +885,16 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo lightingPassPipelineLayoutInfo;
 
-	vk::DescriptorSetLayout lightingPassSetLayouts[] = {
-		_globalSetLayout, _gBufferSetLayout, _tlasSetLayout
-	};
+	DescriptorSetFlags lightingPassDescFlags = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eGBuffer |
+		DescriptorSetFlagBits::eTLAS;
+
+	auto lightingPassSetLayouts = _descMng.get_layouts(lightingPassDescFlags);
 
 	lightingPassPipelineLayoutInfo.setSetLayouts(lightingPassSetLayouts);
 
-	_lightingPassPipelineLayout = _device.createPipelineLayout(lightingPassPipelineLayoutInfo);
+	auto lightingPassPipelineLayout = _device.createPipelineLayout(lightingPassPipelineLayoutInfo);
 
-	pipelineBuilder._pipelineLayout = _lightingPassPipelineLayout;
+	pipelineBuilder._pipelineLayout = lightingPassPipelineLayout;
 
 	pipelineBuilder._renderingCreateInfo = _lightingPassPipelineInfo;
 
@@ -1043,7 +906,8 @@ void VulkanEngine::init_pipelines()
 
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
-	_lightingPassPipeline = pipelineBuilder.buildPipeline(_device);
+	auto lightingPassPipeline = pipelineBuilder.buildPipeline(_device);
+	create_material_set(lightingPassPipeline, lightingPassPipelineLayout, PipelineType::eLightingPass, lightingPassDescFlags);
 
 	// init skybox pipeline
 
@@ -1086,7 +950,7 @@ void VulkanEngine::init_pipelines()
 	pipelineBuilder._pipelineLayout = skyboxPipelineLayout;
 
 	vk::Pipeline skyboxPipeline = pipelineBuilder.buildPipeline(_device);
-	create_material_set(skyboxPipeline, skyboxPipelineLayout, "skybox");
+	create_material_set(skyboxPipeline, skyboxPipelineLayout, PipelineType::eSkybox, skyboxPipelineUsedDescs);
 
 	// init postprocessing pass pipeline
 
@@ -1125,15 +989,15 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo postPassPipelineLayoutInfo;
 
-	vk::DescriptorSetLayout postPassSetLayouts[] = {
-		_postprocessSetLayout
-	};
+	DescriptorSetFlags postPassDescFlags = DescriptorSetFlagBits::ePostprocess;
+
+	auto postPassSetLayouts = _descMng.get_layouts(postPassDescFlags);
 
 	postPassPipelineLayoutInfo.setSetLayouts(postPassSetLayouts);
 
-	_postPassPipelineLayout = _device.createPipelineLayout(postPassPipelineLayoutInfo);
+	auto postPassPipelineLayout = _device.createPipelineLayout(postPassPipelineLayoutInfo);
 
-	pipelineBuilder._pipelineLayout = _postPassPipelineLayout;
+	pipelineBuilder._pipelineLayout = postPassPipelineLayout;
 
 	vk::PipelineRenderingCreateInfo postPassPipelineRenderingInfo;
 	postPassPipelineRenderingInfo.setColorAttachmentFormats(_swapchainImageFormat);
@@ -1158,7 +1022,8 @@ void VulkanEngine::init_pipelines()
 
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
-	_postPassPipeline = pipelineBuilder.buildPipeline(_device);
+	auto postPassPipeline = pipelineBuilder.buildPipeline(_device);
+	create_material_set(postPassPipeline, postPassPipelineLayout, PipelineType::ePostprocess, postPassDescFlags);
 
 	// init motion vector pass pipeline
 
@@ -1174,10 +1039,14 @@ void VulkanEngine::init_pipelines()
 	}
 
 	vk::PipelineLayoutCreateInfo mvPipelineLayoutInfo;
-	mvPipelineLayoutInfo.setSetLayouts(_globalSetLayout);
 
-	_mvPassPipelineLayout = _device.createPipelineLayout(mvPipelineLayoutInfo);
-	pipelineBuilder._pipelineLayout = _mvPassPipelineLayout;
+	DescriptorSetFlags mvDescFlags = DescriptorSetFlagBits::eGlobal;
+	auto mvSetLayouts = _descMng.get_layouts(mvDescFlags);
+
+	mvPipelineLayoutInfo.setSetLayouts(mvSetLayouts);
+
+	auto mvPassPipelineLayout = _device.createPipelineLayout(mvPipelineLayoutInfo);
+	pipelineBuilder._pipelineLayout = mvPassPipelineLayout;
 
 	vk::PipelineRenderingCreateInfo mvPipelineRenderingInfo;
 	mvPipelineRenderingInfo.setColorAttachmentFormats(_motionVectorFormat);
@@ -1190,7 +1059,8 @@ void VulkanEngine::init_pipelines()
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
 		motionVectorFragmentShader));
 
-	_mvPassPipeline = pipelineBuilder.buildPipeline(_device);
+	auto mvPassPipeline = pipelineBuilder.buildPipeline(_device);
+	create_material_set(mvPassPipeline, mvPassPipelineLayout, PipelineType::eMotionVectors, mvDescFlags);
 
 	// shader modules are now built into the pipelines, we don't need them anymore
 
@@ -1209,16 +1079,16 @@ void VulkanEngine::init_pipelines()
 
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyPipeline(geometryPassPipeline);
-		_device.destroyPipeline(_lightingPassPipeline);
+		_device.destroyPipeline(lightingPassPipeline);
 		_device.destroyPipeline(skyboxPipeline);
-		_device.destroyPipeline(_postPassPipeline);
-		_device.destroyPipeline(_mvPassPipeline);
+		_device.destroyPipeline(postPassPipeline);
+		_device.destroyPipeline(mvPassPipeline);
 		
 		_device.destroyPipelineLayout(texturedPipelineLayout);
 		_device.destroyPipelineLayout(skyboxPipelineLayout);
-		_device.destroyPipelineLayout(_lightingPassPipelineLayout);
-		_device.destroyPipelineLayout(_postPassPipelineLayout);
-		_device.destroyPipelineLayout(_mvPassPipelineLayout);
+		_device.destroyPipelineLayout(lightingPassPipelineLayout);
+		_device.destroyPipelineLayout(postPassPipelineLayout);
+		_device.destroyPipelineLayout(mvPassPipelineLayout);
 	});
 }
 
@@ -1309,162 +1179,58 @@ void VulkanEngine::init_tlas()
 
 	vkrt::buildTlas(this, tlas);
 
-	vk::WriteDescriptorSetAccelerationStructureKHR descTlasWrite;
-	descTlasWrite.setAccelerationStructures(_topLevelAS._structure);
+	_descMng.register_accel_structure(RegisteredDescriptorSet::eTLAS, vk::ShaderStageFlagBits::eFragment,
+		_topLevelAS._structure, 0);
 
-	vk::WriteDescriptorSet descWrite;
-	descWrite.dstBinding = 0;
-	descWrite.dstSet = _tlasDescriptorSet;
-	descWrite.descriptorCount = 1;
-	descWrite.descriptorType = vk::DescriptorType::eAccelerationStructureKHR;
-	descWrite.pNext = &descTlasWrite;
-
-	_device.updateDescriptorSets(descWrite, {});
+	_descMng.register_accel_structure(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR |
+		vk::ShaderStageFlagBits::eClosestHitKHR, _topLevelAS._structure, 0);
 }
 
 void VulkanEngine::init_rt_descriptors()
 {
-	// binding 0 reserved for TLAS
-	vk::DescriptorSetLayoutBinding tlasBinding =
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eAccelerationStructureKHR, vk::ShaderStageFlagBits::eRaygenKHR | 
-			vk::ShaderStageFlagBits::eClosestHitKHR, 0);
-
-	vk::DescriptorSetLayoutBinding outImageBinding = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eStorageImage,
-		vk::ShaderStageFlagBits::eRaygenKHR, 0);
-
-	// binding 1 in per frame set for motion vectors
-	vk::DescriptorSetLayoutBinding mvBinding =
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eRaygenKHR, 1);
-
-	// binding 2 in per frame set for previous frame as texture
-	vk::DescriptorSetLayoutBinding frameBinding =
-		vkinit::descriptor_set_layout_binding(vk::DescriptorType::eCombinedImageSampler, vk::ShaderStageFlagBits::eRaygenKHR, 2);
-
-	std::vector<vk::DescriptorPoolSize> poolSizes = {
-		{ vk::DescriptorType::eStorageImage, 10 },
-		{ vk::DescriptorType::eCombinedImageSampler, 10 },
-		{ vk::DescriptorType::eAccelerationStructureKHR, 5 }
-	};
-
-	vk::DescriptorPoolCreateInfo rtDescPoolInfo;
-	rtDescPoolInfo.setMaxSets(50);
-	rtDescPoolInfo.setPoolSizes(poolSizes);
-
-	_rtDescriptorPool = _device.createDescriptorPool(rtDescPoolInfo);
-
-	std::vector<vk::DescriptorSetLayoutBinding> rtSetBindings =
-	{
-		tlasBinding
-	};
-
-	std::vector<vk::DescriptorSetLayoutBinding> rtPerFrameSetBindings =
-	{
-		outImageBinding, mvBinding, frameBinding
-	};
-
-	vk::DescriptorSetLayoutCreateInfo rtLayoutInfo;
-	rtLayoutInfo.setBindings(rtSetBindings);
-
-	vk::DescriptorSetLayoutCreateInfo rtPerFrameLayoutInfo;
-	rtPerFrameLayoutInfo.setBindings(rtPerFrameSetBindings);
-
-	_rtSetLayout = _device.createDescriptorSetLayout(rtLayoutInfo);
-	_rtPerFrameSetLayout = _device.createDescriptorSetLayout(rtPerFrameLayoutInfo);
-
-	std::vector<vk::DescriptorSetLayout> rtSetLayouts = {
-		_rtSetLayout
-	};
-
-	for (int i = 0; i < FRAME_OVERLAP; ++i)
-	{
-		rtSetLayouts.push_back(_rtPerFrameSetLayout);
-	}
-
-	vk::DescriptorSetAllocateInfo rtSetAllocInfo;
-	rtSetAllocInfo.setDescriptorPool(_rtDescriptorPool);
-	rtSetAllocInfo.setSetLayouts(rtSetLayouts);
-
-	auto allocatedSets = _device.allocateDescriptorSets(rtSetAllocInfo);
-
-	_rtDescriptorSet = allocatedSets[0];
-
-	for (uint32_t i = 0; i < FRAME_OVERLAP; ++i)
-	{
-		_frames[i]._perFrameSetRTX = allocatedSets[1 + i];
-	}
-
-	vk::WriteDescriptorSetAccelerationStructureKHR tlasWriteDescInfo;
-	tlasWriteDescInfo.setAccelerationStructures(_topLevelAS._structure);
-
-	vk::WriteDescriptorSet tlasWrite;
-	tlasWrite.dstBinding = RTXBindings::eTlas;
-	tlasWrite.dstSet = _rtDescriptorSet;
-	tlasWrite.descriptorCount = 1;
-	tlasWrite.descriptorType = vk::DescriptorType::eAccelerationStructureKHR;
-	tlasWrite.pNext = &tlasWriteDescInfo;
-
-	// motion vector sampler
 	vk::SamplerCreateInfo mvSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
-		1, 1.0, vk::SamplerAddressMode::eClampToEdge);
+		1.0, vk::SamplerAddressMode::eClampToEdge);
 	vk::Sampler mvSampler = _device.createSampler(mvSamplerInfo);
 
-	// previous frame texture sampler
 	vk::SamplerCreateInfo frameSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-		1, 1.0, vk::SamplerAddressMode::eClampToEdge);
+		1.0, vk::SamplerAddressMode::eClampToEdge);
 	vk::Sampler frameSampler = _device.createSampler(frameSamplerInfo);
 
-	_device.updateDescriptorSets(tlasWrite, {});
+	std::vector<ImageInfo> outImageInfos(FRAME_OVERLAP);
+	std::vector<ImageInfo> mvInfos(FRAME_OVERLAP);
+	std::vector<ImageInfo> prevFrameInfos(FRAME_OVERLAP);
 
-	for (int i = 0; i < FRAME_OVERLAP; ++i)
+	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
 	{
-		vk::DescriptorImageInfo outImageDescInfo;
-		outImageDescInfo.imageLayout = vk::ImageLayout::eGeneral;
-		outImageDescInfo.imageView = _intermediateImageView;
+		ImageInfo fullFrameImage;
+		fullFrameImage.imageType = vk::DescriptorType::eCombinedImageSampler;
+		fullFrameImage.layout = vk::ImageLayout::eGeneral;
+		fullFrameImage.sampler = frameSampler;
 
-		vk::WriteDescriptorSet outImageWrite;
-		outImageWrite.dstBinding = 0;
-		outImageWrite.dstSet = _frames[i]._perFrameSetRTX;
-		outImageWrite.descriptorCount = 1;
-		outImageWrite.descriptorType = vk::DescriptorType::eStorageImage;
-		outImageWrite.setImageInfo(outImageDescInfo);
+		outImageInfos[i] = fullFrameImage;
+		outImageInfos[i].imageType = vk::DescriptorType::eStorageImage;
+		outImageInfos[i].imageView = _intermediateImageView;
 
+		mvInfos[i].imageType = vk::DescriptorType::eCombinedImageSampler;
+		mvInfos[i].sampler = mvSampler;
+		mvInfos[i].imageView = _motionVectorImageView;
+		mvInfos[i].layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-		vk::DescriptorImageInfo motionVectorsDescInfo;
-		motionVectorsDescInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		motionVectorsDescInfo.imageView = _motionVectorImageView;
-		motionVectorsDescInfo.sampler = mvSampler;
-
-		vk::WriteDescriptorSet mvImageWrite;
-		mvImageWrite.dstBinding = 1;
-		mvImageWrite.dstSet = _frames[i]._perFrameSetRTX;
-		mvImageWrite.descriptorCount = 1;
-		mvImageWrite.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-		mvImageWrite.setImageInfo(motionVectorsDescInfo);
-
-
-		vk::DescriptorImageInfo frameImageDescInfo;
-		frameImageDescInfo.imageLayout = vk::ImageLayout::eGeneral;
-		frameImageDescInfo.imageView = _prevFrameImageView;
-		frameImageDescInfo.sampler = frameSampler;
-
-		vk::WriteDescriptorSet frameImageWrite;
-		frameImageWrite.dstBinding = 2;
-		frameImageWrite.dstSet = _frames[i]._perFrameSetRTX;
-		frameImageWrite.descriptorCount = 1;
-		frameImageWrite.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-		frameImageWrite.setImageInfo(frameImageDescInfo);
-
-
-		std::vector<vk::WriteDescriptorSet> perFrameWrites = {
-			outImageWrite, mvImageWrite, frameImageWrite
-		};
-
-		_device.updateDescriptorSets(perFrameWrites, {});
+		prevFrameInfos[i] = fullFrameImage;
+		prevFrameInfos[i].layout = vk::ImageLayout::eGeneral;
+		prevFrameInfos[i].imageView = _prevFrameImageView;
 	}
+
+	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, outImageInfos, 0,
+		1, false, true);
+
+	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, mvInfos, 1,
+		1, false, true);
+
+	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, prevFrameInfos, 2,
+		1, false, true);
+
 	_mainDeletionQueue.push_function([=]() {
-		_device.destroyDescriptorSetLayout(_rtSetLayout);
-		_device.destroyDescriptorSetLayout(_rtPerFrameSetLayout);
-		_device.destroyDescriptorPool(_rtDescriptorPool);
 		_device.destroySampler(mvSampler);
 		_device.destroySampler(frameSampler);
 	});
@@ -1595,22 +1361,25 @@ void VulkanEngine::init_rt_pipeline()
 
 	rtPipelineLayoutInfo.setPushConstantRanges(rayPushConstants);
 
-	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = {
-		_rtSetLayout, _rtPerFrameSetLayout, _globalSetLayout, _objectSetLayout, _textureSetLayout,
-		_textureSetLayout, _textureSetLayout, _textureSetLayout, _cubemapSetLayout
-	};
+	DescriptorSetFlags rtPipelineDescFlags = DescriptorSetFlagBits::eRTXGeneral | DescriptorSetFlagBits::eRTXPerFrame |
+		DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eObjects | DescriptorSetFlagBits::eDiffuseTextures |
+		DescriptorSetFlagBits::eMetallicTextures | DescriptorSetFlagBits::eRoughnessTextures |
+		DescriptorSetFlagBits::eNormalMapTextures | DescriptorSetFlagBits::eSkyboxTextures;
+
+	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = _descMng.get_layouts(rtPipelineDescFlags);
+
 	rtPipelineLayoutInfo.setSetLayouts(rtPipelineSetLayouts);
-	_rtPipelineLayout = _device.createPipelineLayout(rtPipelineLayoutInfo);
+	auto rtPipelineLayout = _device.createPipelineLayout(rtPipelineLayoutInfo);
 
 	_mainDeletionQueue.push_function([=]() {
-		_device.destroyPipelineLayout(_rtPipelineLayout);
+		_device.destroyPipelineLayout(rtPipelineLayout);
 	});
 
 	vk::RayTracingPipelineCreateInfoKHR rtPipelineInfo;
 	rtPipelineInfo.setStages(stages);
 	rtPipelineInfo.setGroups(_rtShaderGroups);
 	rtPipelineInfo.maxPipelineRayRecursionDepth = 2;
-	rtPipelineInfo.layout = _rtPipelineLayout;
+	rtPipelineInfo.layout = rtPipelineLayout;
 
 	if (_rtProperties.maxRayRecursionDepth <= 1) {
 		std::cout << "Device doesn't support ray recursion (maxRayRecursionDepth <= 1)" << std::endl;
@@ -1618,11 +1387,13 @@ void VulkanEngine::init_rt_pipeline()
 	}
 
 	auto rtPipelineResVal = _device.createRayTracingPipelineKHR({}, {}, rtPipelineInfo);
+
 	VK_CHECK(rtPipelineResVal.result);
-	_rtPipeline = rtPipelineResVal.value;
+	auto rtPipeline = rtPipelineResVal.value;
+	create_material_set(rtPipeline, rtPipelineLayout, PipelineType::eRayTracing, rtPipelineDescFlags);
 
 	_mainDeletionQueue.push_function([=]() {
-		_device.destroyPipeline(_rtPipeline);
+		_device.destroyPipeline(rtPipeline);
 	});
 
 	for (auto& stage : stages)
@@ -1647,10 +1418,12 @@ void VulkanEngine::init_shader_binding_table()
 	_rchitRegion.stride = alignedHandleSize;
 	_rchitRegion.size = align_up(rchitCount * alignedHandleSize, _rtProperties.shaderGroupBaseAlignment);
 
+	MaterialSet* pRtMaterial = get_material_set(PipelineType::eRayTracing);
+
 	// get shader group handles
 	uint32_t dataSize = handleCount * handleSize;
 	std::vector<uint8_t> handles(dataSize);
-	VK_CHECK(_device.getRayTracingShaderGroupHandlesKHR(_rtPipeline, 0, handleCount, dataSize, handles.data()));
+	VK_CHECK(_device.getRayTracingShaderGroupHandlesKHR(pRtMaterial->pipeline, 0, handleCount, dataSize, handles.data()));
 
 	vk::DeviceSize sbtSize = _rgenRegion.size + _rmissRegion.size + _rchitRegion.size + _rcallRegion.size;
 	_rtSbtBuffer = create_buffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst | 
@@ -1737,6 +1510,14 @@ void VulkanEngine::load_images()
 {
 	Model* curModel = get_model("scene");
 
+	vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear);
+
+	vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
+
+	_mainDeletionQueue.push_function([=]() {
+		_device.destroySampler(smoothSampler);
+	});
+
 	Texture defaultTex = {};
 
 	vkutil::load_image_from_file(this, "../../../assets/null-texture.png", defaultTex.image);
@@ -1748,6 +1529,14 @@ void VulkanEngine::load_images()
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyImageView(defaultTex.imageView);
 	});
+
+
+	ImageInfo texInfo;
+	texInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
+	texInfo.sampler = smoothSampler;
+	texInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+	std::vector<ImageInfo> diffuseInfos(_scene._diffuseTexNames.size());
 
 	for (size_t i = 0; i < _scene._diffuseTexNames.size(); ++i)
 	{
@@ -1761,36 +1550,63 @@ void VulkanEngine::load_images()
 		{
 			_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
 		}
+		
+		diffuseInfos[i] = texInfo;
+		diffuseInfos[i].imageView = _loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT].imageView;
 	}
 
+	_descMng.register_image(RegisteredDescriptorSet::eDiffuseTextures, vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, diffuseInfos, 0, _scene._diffuseTexNames.size(),
+		true);
+
+
+	std::vector<ImageInfo> metallicInfos(_scene._metallicTexNames.size());
 	for (size_t i = 0; i < _scene._metallicTexNames.size(); ++i)
 	{
-		Texture specular = {};
+		Texture metallic = {};
 
 		if (!_scene._metallicTexNames[i].empty())
 		{
-			load_material_texture(specular, _scene._metallicTexNames[i], _scene._matNames[i], METALLIC_TEX_SLOT);
+			load_material_texture(metallic, _scene._metallicTexNames[i], _scene._matNames[i], METALLIC_TEX_SLOT);
 		}
 		else
 		{
 			_loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT] = defaultTex;
 		}
+
+		metallicInfos[i] = texInfo;
+		metallicInfos[i].imageView = _loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT].imageView;
 	}
 
+	_descMng.register_image(RegisteredDescriptorSet::eMetallicTextures, vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, metallicInfos, 0, _scene._metallicTexNames.size(),
+		true);
+
+
+	std::vector<ImageInfo> roughnessInfos(_scene._roughnessTexNames.size());
 	for (size_t i = 0; i < _scene._roughnessTexNames.size(); ++i)
 	{
-		Texture specular = {};
+		Texture roughness = {};
 
 		if (!_scene._roughnessTexNames[i].empty())
 		{
-			load_material_texture(specular, _scene._roughnessTexNames[i], _scene._matNames[i], ROUGHNESS_TEX_SLOT);
+			load_material_texture(roughness, _scene._roughnessTexNames[i], _scene._matNames[i], ROUGHNESS_TEX_SLOT);
 		}
 		else
 		{
 			_loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT] = defaultTex;
 		}
+
+		roughnessInfos[i] = texInfo;
+		roughnessInfos[i].imageView = _loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT].imageView;
 	}
 
+	_descMng.register_image(RegisteredDescriptorSet::eRoughnessTextures, vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, roughnessInfos, 0, _scene._roughnessTexNames.size(),
+		true);
+
+
+	std::vector<ImageInfo> normalMapInfos(_scene._normalMapNames.size());
 	for (size_t i = 0; i < _scene._normalMapNames.size(); ++i)
 	{
 		Texture normalMap = {};
@@ -1816,13 +1632,30 @@ void VulkanEngine::load_images()
 				_device.destroyImageView(defaultNormal.imageView);
 			});
 		}
+
+		normalMapInfos[i] = texInfo;
+		normalMapInfos[i].imageView = _loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT].imageView;
 	}
+
+	_descMng.register_image(RegisteredDescriptorSet::eNormalMapTextures, vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, normalMapInfos, 0, _scene._normalMapNames.size(),
+		true);
+
 
 	load_skybox(_skybox, "../../../assets/skybox/");
 
 	vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
 		_skybox.image._image, vk::ImageAspectFlagBits::eColor, _skybox.image._mipLevels, ImageType::eCubemap);
 	_skybox.imageView = _device.createImageView(imageViewInfo);
+
+	ImageInfo skyboxInfo;
+	skyboxInfo.imageView = _skybox.imageView;
+	skyboxInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
+	skyboxInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	skyboxInfo.sampler = smoothSampler;
+
+	_descMng.register_image(RegisteredDescriptorSet::eSkyboxTextures, vk::ShaderStageFlagBits::eFragment |
+		vk::ShaderStageFlagBits::eMissKHR, { skyboxInfo }, 0);
 
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyImageView(_skybox.imageView);
@@ -1854,33 +1687,11 @@ void VulkanEngine::update_frame()
 	++_rayConstants.frame;
 }
 
-void VulkanEngine::fill_tex_descriptor_sets(std::vector<vk::DescriptorImageInfo>& texBufferInfos,
-	const std::vector<std::string>& texNames, Model* model, uint32_t texSlot)
-{
-	texBufferInfos.resize(texNames.size());
-
-	for (size_t i = 0; i < texNames.size(); ++i)
-	{
-		vk::SamplerCreateInfo samplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
-			_loadedTextures[_scene._matNames[i]][texSlot].image._mipLevels, VK_LOD_CLAMP_NONE);
-
-		vk::Sampler smoothSampler = _device.createSampler(samplerInfo);
-
-		_mainDeletionQueue.push_function([=]() {
-			_device.destroySampler(smoothSampler);
-			});
-
-		texBufferInfos[i].sampler = smoothSampler;
-		texBufferInfos[i].imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		texBufferInfos[i].imageView = _loadedTextures[_scene._matNames[i]][texSlot].imageView;
-	}
-}
-
 void VulkanEngine::init_scene()
 {
 	RenderObject suzanne = {};
 	suzanne.model = get_model("suzanne");
-	suzanne.materialSet = get_material_set("geometrypass");
+	suzanne.materialSet = get_material_set(PipelineType::eGeometryPass);
 	suzanne.mesh = &(suzanne.model->_meshes.front());
 	//glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(5.0f, 5.0f, 5.0f));
 	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
@@ -1899,7 +1710,7 @@ void VulkanEngine::init_scene()
 	glm::mat4 sceneTransform = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f),
 		glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
-	MaterialSet* pSceneMatSet = get_material_set("geometrypass");
+	MaterialSet* pSceneMatSet = get_material_set(PipelineType::eGeometryPass);
 
 	for (Mesh& mesh : pSceneModel->_meshes)
 	{
@@ -1913,7 +1724,7 @@ void VulkanEngine::init_scene()
 	}
 
 	_skyboxObject.model = get_model("cube");
-	_skyboxObject.materialSet = get_material_set("skybox");
+	_skyboxObject.materialSet = get_material_set(PipelineType::eSkybox);
 	_skyboxObject.mesh = &(_skyboxObject.model->_meshes.front());
 	glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(600.0f, 600.0f, 600.0f));
 	//glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
@@ -1940,107 +1751,6 @@ void VulkanEngine::init_scene()
 	backLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 0.0f };
 	_sceneParameters.pointLights[1] = frontLight;
 	_sceneParameters.pointLights[2] = backLight;
-	
-	// create descriptor set for texture(s)
-
-	MaterialSet* texturedMatSet = get_material_set("geometrypass");
-
-	std::array<uint32_t, NUM_TEXTURE_TYPES> textureVariableDescCounts = {
-		static_cast<uint32_t>(_scene._diffuseTexNames.size()),
-		static_cast<uint32_t>(_scene._metallicTexNames.size()),
-		static_cast<uint32_t>(_scene._roughnessTexNames.size()),
-		static_cast<uint32_t>(_scene._normalMapNames.size())
-	};
-
-	std::array<vk::DescriptorSetLayout, NUM_TEXTURE_TYPES> textureSetLayouts = {
-		_textureSetLayout,
-		_textureSetLayout,
-		_textureSetLayout,
-		_textureSetLayout
-	};
-
-	vk::StructureChain<vk::DescriptorSetAllocateInfo, vk::DescriptorSetVariableDescriptorCountAllocateInfo> descCntC;
-
-	auto& variableDescriptorCountAllocInfo =
-		descCntC.get<vk::DescriptorSetVariableDescriptorCountAllocateInfo>();
-	variableDescriptorCountAllocInfo.setDescriptorCounts(textureVariableDescCounts);
-
-	auto& allocInfo = descCntC.get<vk::DescriptorSetAllocateInfo>();
-	allocInfo.setDescriptorPool(_descriptorPool);
-	allocInfo.setSetLayouts(textureSetLayouts);
-
-	_texDescriptorSets = _device.allocateDescriptorSets(allocInfo);
-
-	texturedMatSet->diffuseTextureSet = _texDescriptorSets[DIFFUSE_TEX_SLOT];
-	texturedMatSet->metallicTextureSet = _texDescriptorSets[METALLIC_TEX_SLOT];
-	texturedMatSet->roughnessTextureSet = _texDescriptorSets[ROUGHNESS_TEX_SLOT];
-	texturedMatSet->normalMapSet = _texDescriptorSets[NORMAL_MAP_SLOT];
-
-	vk::DescriptorSetAllocateInfo skyboxAllocInfo = {};
-	skyboxAllocInfo.setDescriptorPool(_descriptorPool);
-	skyboxAllocInfo.setSetLayouts(_cubemapSetLayout);
-
-	MaterialSet* skyboxMatSet = get_material_set("skybox");
-	skyboxMatSet->skyboxSet = _device.allocateDescriptorSets(skyboxAllocInfo)[0];
-
-	// fill diffuse descriptor set
-
-	std::vector<vk::DescriptorImageInfo> diffuseImageBufferInfos;
-	fill_tex_descriptor_sets(diffuseImageBufferInfos, _scene._diffuseTexNames, pSceneModel, DIFFUSE_TEX_SLOT);
-
-	// fill metallic descriptor set
-
-	std::vector<vk::DescriptorImageInfo> metallicImageBufferInfos;
-	fill_tex_descriptor_sets(metallicImageBufferInfos, _scene._metallicTexNames, pSceneModel, METALLIC_TEX_SLOT);
-
-	// fill roughness descriptor set
-
-	std::vector<vk::DescriptorImageInfo> roughnessImageBufferInfos;
-	fill_tex_descriptor_sets(roughnessImageBufferInfos, _scene._roughnessTexNames, pSceneModel, ROUGHNESS_TEX_SLOT);
-
-	// fill normal map descriptor set
-
-	std::vector<vk::DescriptorImageInfo> normalMapImageBufferInfos;
-	fill_tex_descriptor_sets(normalMapImageBufferInfos, _scene._normalMapNames, pSceneModel, NORMAL_MAP_SLOT);
-
-	// fill cubemap descriptor set
-
-	vk::DescriptorImageInfo skyboxDescImage;
-	vk::SamplerCreateInfo skyboxSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear);
-	vk::Sampler skyboxSampler = _device.createSampler(skyboxSamplerInfo);
-
-	_mainDeletionQueue.push_function([=]() {
-		_device.destroySampler(skyboxSampler);
-		});
-
-	skyboxDescImage.sampler = skyboxSampler;
-	skyboxDescImage.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-	skyboxDescImage.imageView = _skybox.imageView;
-
-	// write to descriptor sets
-
-	std::array<vk::WriteDescriptorSet, NUM_TEXTURE_TYPES> textureSetWrites;
-
-	textureSetWrites[DIFFUSE_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->diffuseTextureSet, diffuseImageBufferInfos.data(), 0, static_cast<uint32_t>(diffuseImageBufferInfos.size()));
-
-	textureSetWrites[METALLIC_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->metallicTextureSet, metallicImageBufferInfos.data(), 0, static_cast<uint32_t>(metallicImageBufferInfos.size()));
-
-	textureSetWrites[ROUGHNESS_TEX_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->roughnessTextureSet, roughnessImageBufferInfos.data(), 0, static_cast<uint32_t>(roughnessImageBufferInfos.size()));
-
-	textureSetWrites[NORMAL_MAP_SLOT] = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		texturedMatSet->normalMapSet, normalMapImageBufferInfos.data(), 0, static_cast<uint32_t>(normalMapImageBufferInfos.size()));
-
-	_device.updateDescriptorSets(textureSetWrites, {});
-
-	vk::WriteDescriptorSet skyboxSetWrite;
-
-	skyboxSetWrite = vkinit::write_descriptor_image(vk::DescriptorType::eCombinedImageSampler,
-		skyboxMatSet->skyboxSet, &skyboxDescImage, 0);
-
-	_device.updateDescriptorSets(skyboxSetWrite, {});
 }
 
 void VulkanEngine::upload_mesh(Mesh& mesh)
@@ -2164,7 +1874,10 @@ void VulkanEngine::draw()
 
 	switch_intermediate_image_layout(cmd, true);
 
-	switch_frame_image_layout(_prevFrameImage, cmd);
+	if (_renderMode == RenderMode::ePathTracing)
+	{
+		switch_frame_image_layout(_prevFrameImage, cmd);
+	}
 	
 	// ========================================   RENDERING   ========================================
 
@@ -2196,7 +1909,7 @@ void VulkanEngine::draw()
 
 		cmd.beginRendering(_lightingPassInfo);
 
-		draw_lighting_pass(cmd, _lightingPassPipelineLayout, _lightingPassPipeline);
+		draw_lighting_pass(cmd);
 
 		cmd.endRendering();
 
@@ -2217,9 +1930,8 @@ void VulkanEngine::draw()
 		cmd.beginRendering(postPassRenderInfo);
 
 		std::vector<vk::DescriptorSet> postPassSets;
-		postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
 
-		draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
+		draw_screen_quad(cmd, PipelineType::ePostprocess);
 
 		cmd.endRendering();
 	}
@@ -2227,11 +1939,7 @@ void VulkanEngine::draw()
 	{
 		cmd.beginRendering(mvPassRenderInfo);
 
-		std::vector<vk::DescriptorSet> mvPassSets = {
-			_globalDescriptor
-		};
-
-		draw_screen_quad(cmd, _mvPassPipelineLayout, _mvPassPipeline, mvPassSets);
+		draw_screen_quad(cmd, PipelineType::eMotionVectors);
 
 		cmd.endRendering();
 
@@ -2266,10 +1974,7 @@ void VulkanEngine::draw()
 
 		cmd.beginRendering(postPassRenderInfo);
 
-		std::vector<vk::DescriptorSet> postPassSets;
-		postPassSets.push_back(get_current_frame()._postprocessDescriptorSet);
-
-		draw_screen_quad(cmd, _postPassPipelineLayout, _postPassPipeline, postPassSets);
+		draw_screen_quad(cmd, PipelineType::ePostprocess);
 
 		cmd.endRendering();
 	}
@@ -2437,26 +2142,25 @@ BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
 	return blasInput;
 }
 
-MaterialSet* VulkanEngine::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, const std::string& name)
+MaterialSet* VulkanEngine::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
+	DescriptorSetFlags descSetFlags)
 {
 	MaterialSet matSet;
 	matSet.pipeline = pipeline;
 	matSet.pipelineLayout = layout;
-	_materialSets[name] = matSet;
-	return &_materialSets[name];
+	matSet.usedDescriptorSets = descSetFlags;
+
+	auto setId = static_cast<size_t>(pipelineType);
+
+	_materialSets[setId] = matSet;
+	return &(_materialSets[setId]);
 }
 
-MaterialSet* VulkanEngine::get_material_set(const std::string& name)
+MaterialSet* VulkanEngine::get_material_set(PipelineType pipelineType)
 {
-	auto it = _materialSets.find(name);
-	if (it == _materialSets.end())
-	{
-		return nullptr;
-	}
-	else
-	{
-		return &(*it).second;
-	}
+	auto setId = static_cast<size_t>(pipelineType);
+
+	return &(_materialSets[setId]);
 }
 
 Model* VulkanEngine::get_model(const std::string& name)
@@ -2487,12 +2191,12 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 	camData.viewproj = projection * view;
 	camData.invProj = glm::inverse(projection);
 	camData.invViewProj = glm::inverse(camData.viewproj);
-	
+
 	glm::mat4 prevView = _prevCamera.get_view_matrix();
 	glm::mat4 prevProjection = glm::perspectiveRH_ZO(glm::radians(_prevCamera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	prevProjection[1][1] *= -1;
-	
+
 	camData.prevViewProj = prevProjection * prevView;
 
 	_sceneParameters.pointLights[0].position = glm::vec4{ _centralLightPos, 0.0f };
@@ -2539,7 +2243,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom), 
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -2566,47 +2270,12 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
 				sizeof(GPUSceneData)) * frameIndex);
 
+			DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
+
+			auto pipelineDescriptorSets = _descMng.get_descriptor_sets(descFlags, frameIndex);
+
 			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 0,
-				_globalDescriptor, uniformOffset);
-
-			// object descriptor
-			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 1,
-				get_current_frame()._objectDescriptor, {});
-
-			// diffuse texture descriptor
-			if (object.materialSet->diffuseTextureSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-					2 + DIFFUSE_TEX_SLOT, object.materialSet->diffuseTextureSet, {});
-			}
-
-			// metallic texture descriptor
-			if (object.materialSet->metallicTextureSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-					2 + METALLIC_TEX_SLOT, object.materialSet->metallicTextureSet, {});
-			}
-
-			// roughness texture descriptor
-			if (object.materialSet->roughnessTextureSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-					2 + ROUGHNESS_TEX_SLOT, object.materialSet->roughnessTextureSet, {});
-			}
-
-			// normal map descriptor
-			if (object.materialSet->normalMapSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-					2 + NORMAL_MAP_SLOT, object.materialSet->normalMapSet, {});
-			}
-
-			// skybox texture descriptor
-			if (object.materialSet->skyboxSet)
-			{
-				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-					2, object.materialSet->skyboxSet, {});
-			}
+				pipelineDescriptorSets, uniformOffset);
 		}
 
 		glm::mat4 model = object.transformMatrix;
@@ -2624,71 +2293,51 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	}
 }
 
-void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline)
+void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd)
 {
-	glm::mat4 view = _camera.get_view_matrix();
-
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom),
-		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
-	projection[1][1] *= -1;
-
-	GPUCameraData camData = {};
-	camData.view = view;
-	camData.invView = glm::inverse(view);
-	camData.proj = projection;
-	camData.viewproj = projection * view;
-
-	_sceneParameters.pointLights[0].position = glm::vec4{ _centralLightPos, 0.0f };
-
-	char* data;
-
-	vmaMapMemory(_allocator, _camSceneBuffer._allocation, (void**)&data);
+	MaterialSet* lightingMatSet = get_material_set(PipelineType::eLightingPass);
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
-	data += pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData)) * frameIndex;
-	memcpy(data, &camData, sizeof(GPUCameraData));
-	data += sizeof(GPUCameraData);
-	memcpy(data, &_sceneParameters, sizeof(GPUSceneData));
-
-	vmaUnmapMemory(_allocator, _camSceneBuffer._allocation);
-
-	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, lightingMatSet->pipeline);
 
 	// scene & camera descriptor set
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
 		sizeof(GPUSceneData)) * frameIndex);
 
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, _globalDescriptor, uniformOffset);
+	DescriptorSetFlags lightingDescFlags = lightingMatSet->usedDescriptorSets;
 
-	// gbuffer descriptor set
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 1, get_current_frame()._gBufferDescriptorSet, {});
+	auto lightingDescSets = _descMng.get_descriptor_sets(lightingDescFlags, frameIndex);
 
-	// TLAS descriptor set
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 2, _tlasDescriptorSet, {});
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, lightingMatSet->pipelineLayout, 0,
+		lightingDescSets, uniformOffset);
 
 	cmd.draw(3, 1, 0, 0);
 }
 
-void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline,
-	const std::vector<vk::DescriptorSet>& descriptorSets)
+void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType)
 {
-	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	MaterialSet* screenQuadMaterial = get_material_set(pipelineType);
+
+	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipeline);
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
 		sizeof(GPUSceneData)) * frameIndex);
 
-	for (uint32_t i = 0; i < descriptorSets.size(); ++i)
+	DescriptorSetFlags quadDescFlags = screenQuadMaterial->usedDescriptorSets;
+
+	auto quadDescSets = _descMng.get_descriptor_sets(quadDescFlags, frameIndex);
+
+	if (quadDescFlags & static_cast<DescriptorSetFlags>(DescriptorSetFlagBits::eGlobal))
 	{
-		if (descriptorSets[i] == _globalDescriptor)
-		{
-			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], uniformOffset);
-		}
-		else
-		{
-			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, i, descriptorSets[i], {});
-		}
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipelineLayout, 0,
+			quadDescSets, uniformOffset);
+	}
+	else
+	{
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipelineLayout, 0,
+			quadDescSets, {});
 	}
 
 	cmd.draw(3, 1, 0, 0);
@@ -2698,15 +2347,9 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
-	glm::mat4 projection = glm::perspective(glm::radians(_camera._zoom),
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
-
-	GPUCameraData camData = {};
-	camData.view = view;
-	camData.invView = glm::inverse(view);
-	camData.proj = projection;
-	camData.viewproj = projection * view;
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
@@ -2715,54 +2358,18 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 		return;
 	}
 
-	// don't bind already bound pipeline
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, object.materialSet->pipeline);
 
 	// scene & camera descriptor
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
 		sizeof(GPUSceneData)) * frameIndex);
 
+	DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
+
+	auto descSets = _descMng.get_descriptor_sets(descFlags, frameIndex);
+
 	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 0,
-		_globalDescriptor, uniformOffset);
-
-	// object descriptor
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout, 1,
-		get_current_frame()._objectDescriptor, {});
-
-	// diffuse texture descriptor
-	if (object.materialSet->diffuseTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-			2 + DIFFUSE_TEX_SLOT, object.materialSet->diffuseTextureSet, {});
-	}
-
-	// specular texture descriptor
-	if (object.materialSet->metallicTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-			2 + METALLIC_TEX_SLOT, object.materialSet->metallicTextureSet, {});
-	}
-
-	// specular texture descriptor
-	if (object.materialSet->roughnessTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-			2 + ROUGHNESS_TEX_SLOT, object.materialSet->roughnessTextureSet, {});
-	}
-
-	// normal map descriptor
-	if (object.materialSet->normalMapSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-			2 + NORMAL_MAP_SLOT, object.materialSet->normalMapSet, {});
-	}
-
-	// skybox texture descriptor
-	if (object.materialSet->skyboxSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, object.materialSet->pipelineLayout,
-			2, object.materialSet->skyboxSet, {});
-	}
+		descSets, uniformOffset);
 
 	glm::mat4 model = object.transformMatrix;
 	// final render matrix
@@ -2793,71 +2400,21 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 
 	FrameData& currentFrame = _frames[swapchainImageIndex];
 
-	std::vector<vk::DescriptorSet> rtSets = {
-		_rtDescriptorSet, currentFrame._perFrameSetRTX, _globalDescriptor
-	};
+	MaterialSet* rtMaterial = get_material_set(PipelineType::eRayTracing);
+	DescriptorSetFlags rtDescFlags = rtMaterial->usedDescriptorSets;
 
-	for (auto& descSet : _texDescriptorSets)
-	{
-		rtSets.push_back(descSet);
-	}
+	std::vector<vk::DescriptorSet> rtSets = _descMng.get_descriptor_sets(rtDescFlags, swapchainImageIndex);
 
-	cmd.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, _rtPipeline);
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eGeneralRTX, _rtDescriptorSet, {});
-
-	int frameIndex = _frameNumber % FRAME_OVERLAP;
-
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::ePerFrame,
-		currentFrame._perFrameSetRTX, {});
+	cmd.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipeline);
 
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-		sizeof(GPUSceneData)) * frameIndex);
+		sizeof(GPUSceneData)) * swapchainImageIndex);
 
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eGlobal, _globalDescriptor, uniformOffset);
-
-	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout, RTXSets::eObjectData, currentFrame._objectDescriptor, {});
-
-	MaterialSet* materialSet = get_material_set("geometrypass");
-
-	MaterialSet* skyboxMatSet = get_material_set("skybox");
-
-	// diffuse texture descriptor
-	if (materialSet->diffuseTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eDiffuseTex, materialSet->diffuseTextureSet, {});
-	}
-
-	// metallic texture descriptor
-	if (materialSet->metallicTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eMetallicTex, materialSet->metallicTextureSet, {});
-	}
-
-	// roughness texture descriptor
-	if (materialSet->roughnessTextureSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eRoughnessTex, materialSet->roughnessTextureSet, {});
-	}
-
-	// normal map descriptor
-	if (materialSet->normalMapSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eNormalMap, materialSet->normalMapSet, {});
-	}
-
-	// skybox descriptor
-	if (skyboxMatSet->skyboxSet)
-	{
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, _rtPipelineLayout,
-			RTXSets::eSkybox, skyboxMatSet->skyboxSet, {});
-	}
+	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipelineLayout,
+		0, rtSets, uniformOffset);
 
 	// upload to GPU
-	cmd.pushConstants(_rtPipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0,
+	cmd.pushConstants(rtMaterial->pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0,
 		sizeof(RayPushConstants), &_rayConstants);
 
 	cmd.traceRaysKHR(_rgenRegion, _rmissRegion, _rchitRegion, _rcallRegion, _windowExtent.width, _windowExtent.height, 1);

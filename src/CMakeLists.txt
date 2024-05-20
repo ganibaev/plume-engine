@@ -1,19 +1,21 @@
 # Add source to this project's executable.
 add_executable(plume
     main.cpp
+    vk_camera.cpp
+    vk_camera.h
     vk_engine.cpp
     vk_engine.h
-    vk_types.h
+    vk_descriptors.cpp
+    vk_descriptors.h
     vk_initializers.cpp
     vk_initializers.h
     vk_mesh.cpp
     vk_mesh.h
-    vk_camera.cpp
-    vk_camera.h
+    vk_raytracing.cpp
+    vk_raytracing.h
     vk_textures.cpp
     vk_textures.h
-    vk_raytracing.cpp
-    vk_raytracing.h)
+    vk_types.h)
 
 set_property(TARGET plume PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:plume>")
 

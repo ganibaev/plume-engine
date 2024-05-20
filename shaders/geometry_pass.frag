@@ -18,10 +18,10 @@ layout (location = 1) out vec4 outNormal;
 layout (location = 2) out vec4 outAlbedo;
 layout (location = 3) out vec4 outMetallicRoughness;
 
-layout (set = 2 + DIFFUSE_TEX_SLOT, binding = 0) uniform sampler2D diffuseTex[];
-layout (set = 2 + METALLIC_TEX_SLOT, binding = 0) uniform sampler2D metallicTex[];
-layout (set = 2 + ROUGHNESS_TEX_SLOT, binding = 0) uniform sampler2D roughnessTex[];
-layout (set = 2 + NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
+layout (set = DIFFUSE_TEX_SLOT, binding = 0) uniform sampler2D diffuseTex[];
+layout (set = METALLIC_TEX_SLOT, binding = 0) uniform sampler2D metallicTex[];
+layout (set = ROUGHNESS_TEX_SLOT, binding = 0) uniform sampler2D roughnessTex[];
+layout (set = NORMAL_MAP_SLOT, binding = 0) uniform sampler2D normalMap[];
 
 void main()
 {

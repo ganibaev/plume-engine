@@ -14,7 +14,7 @@ struct CameraData
 	mat4 viewproj;
 };
 
-layout (set = 0, binding = 0) uniform CameraBuffer
+layout (set = 1, binding = 0) uniform CameraBuffer
 {
 	CameraData camData;
 } camSceneData;

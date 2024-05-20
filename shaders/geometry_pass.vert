@@ -23,7 +23,7 @@ struct CameraData
 	mat4 viewproj;
 };
 
-layout (set = 0, binding = 0) uniform CameraBuffer
+layout (set = 5, binding = 0) uniform CameraBuffer
 {
 	CameraData camData;
 } camSceneData;
@@ -38,7 +38,7 @@ struct ObjectData
 };
 
 // object data 
-layout (set = 1, binding = 0, scalar) readonly buffer ObjectBuffer
+layout (set = 4, binding = 0, scalar) readonly buffer ObjectBuffer
 {
 	ObjectData objects[];
 } objectBuffer;
