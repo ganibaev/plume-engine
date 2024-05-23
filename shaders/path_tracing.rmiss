@@ -16,4 +16,5 @@ void main()
 	prd.hitValue = vec3(253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f) * 5;
 	// end path
 	prd.depth = 100;
+	prd.matID = -1;
 }

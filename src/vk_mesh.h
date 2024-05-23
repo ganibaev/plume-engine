@@ -36,7 +36,7 @@ struct Mesh
 	AllocatedBuffer _vertexBuffer;
 	std::vector<uint32_t> _indices;
 	AllocatedBuffer _indexBuffer;
-	int32_t _matIndex;
+	int32_t _matIndex = -1;
 	glm::vec3 _emittance{ 0.0f };
 };
 

@@ -6,6 +6,11 @@ layout (location = 0) out vec4 outColor;
 
 layout (set = 0, binding = 0) uniform sampler2D frameTexture;
 
+layout (push_constant) uniform constants
+{
+	bool USE_DENOISER;
+};
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //  Copyright (c) 2018-2019 Michele Morrone
 //  All rights reserved.
@@ -91,6 +96,9 @@ void main()
     float sigma = 1.0;
     float kSigma = 1.0;
     float threshold = 0.075;
-	outColor = morroneDenoiser(frameTexture, inTexCoords, sigma, kSigma, threshold);
+    if (USE_DENOISER)
+    {
+        outColor = morroneDenoiser(frameTexture, inTexCoords, sigma, kSigma, threshold);
+    }
 	outColor = vec4(unchartedTonemap(outColor.rgb), 1.0);
 }

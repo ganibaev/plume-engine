@@ -5,6 +5,7 @@
 #include <tuple>
 #include <string>
 #include <iostream>
+#include <unordered_set>
 
 #include "vk_descriptors.h"
 #include "vk_camera.h"
@@ -93,7 +94,14 @@ struct RenderObject
 
 struct RayPushConstants
 {
-	int frame;
+	int32_t frame;
+
+	int32_t USE_TEMPORAL_ACCUMULATION = true;
+	int32_t USE_MOTION_VECTORS = true;
+	int32_t USE_SHADER_EXECUTION_REORDERING = true;
+	int32_t MAX_BOUNCES = 12;
+
+	int32_t padding[3];
 };
 
 enum class RenderMode
@@ -168,6 +176,16 @@ struct FrameData
 	AllocatedBuffer _objectBuffer;
 };
 
+struct ConfigurationVariables
+{
+	bool DENOISING = true;
+	bool TEMPORAL_ACCUMULATION = true;
+	bool MOTION_VECTORS = true;
+	bool SHADER_EXECUTION_REORDERING = true;
+	bool FXAA = true;
+	int32_t MAX_BOUNCES = 11;
+};
+
 
 class VulkanEngine {
 public:
@@ -179,7 +197,7 @@ public:
 
 	constexpr static float _camSpeed = 0.2f;
 
-	vk::Extent2D _windowExtent{ 2560, 1440 };
+	vk::Extent2D _windowExtent{ 1920, 1080};
 
 	vk::Extent3D _windowExtent3D{ _windowExtent, 1 };
 
@@ -204,7 +222,7 @@ public:
 	VmaAllocator _allocator;
 
 	vk::Instance _instance; // Vulkan library handle
-	vk::DebugUtilsMessengerEXT _debug_messenger; 
+	vk::DebugUtilsMessengerEXT _debug_messenger;
 	vk::PhysicalDevice _chosenGPU; // default GPU
 	vk::Device _device; // commands will be executed on this 
 	vk::SurfaceKHR _surface; // window surface
@@ -213,6 +231,8 @@ public:
 
 	vk::PhysicalDeviceProperties2 _gpuProperties;
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR _rtProperties;
+
+	std::unordered_set<std::string> _supportedExtensions;
 
 	UploadContext _uploadContext;
 
@@ -228,11 +248,18 @@ public:
 
 	glm::vec3 _centralLightPos = { 2.8f, 20.0f, 17.5f };
 
+	bool _defocusMode = false;
+	bool _showImgui = false;
+
 	GPUSceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;
 
+	ConfigurationVariables _cfg;
+
 	size_t pad_uniform_buffer_size(size_t originalSize);
 	vk::DeviceSize align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment);
+
+	void fill_supported_extensions();
 
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
@@ -244,6 +271,7 @@ public:
 	std::vector<vk::Image> _swapchainImages;
 	vk::Image _intermediateImage;
 	vk::Format _swapchainImageFormat;
+	vk::Format _intermediateImageFormat;
 
 	std::vector<vk::ImageView> _swapchainImageViews;
 	vk::ImageView _intermediateImageView;
@@ -285,6 +313,8 @@ public:
 	vk::RenderingAttachmentInfo _gBufferDepthAttachment;
 	std::array<vk::Format, NUM_GBUFFER_ATTACHMENTS> _colorAttachmentFormats;
 
+	vk::Image _ptPositionImage;
+	vk::Image _prevPositionImage;
 	vk::Image _motionVectorImage;
 	vk::RenderingAttachmentInfo _motionVectorAttachment;
 	vk::ImageView _motionVectorImageView;
@@ -333,6 +363,8 @@ public:
 	void draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType);
 	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
 
+	void draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView);
+
 	void trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex);
 
 	DeletionQueue _mainDeletionQueue;
@@ -370,7 +402,9 @@ private:
 
 	void init_shader_binding_table();
 
-	void load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
+	void init_ui();
+
+	bool load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
 		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);
 
 	void load_skybox(Texture& skybox, const std::string& directory);

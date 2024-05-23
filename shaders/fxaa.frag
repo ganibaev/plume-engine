@@ -6,6 +6,11 @@ layout (location = 0) out vec4 outColor;
 
 layout (set = 0, binding = 0) uniform sampler2D frameTexture;
 
+layout (push_constant) uniform constants
+{
+	bool USE_FXAA;
+};
+
 vec3 applyFxaa(vec2 uvInterp, sampler2D frameTex)
 {
 	const float FXAA_SPAN_MAX = 8.0;
@@ -53,5 +58,12 @@ vec3 applyFxaa(vec2 uvInterp, sampler2D frameTex)
 
 void main()
 {
-	outColor = vec4(applyFxaa(inTexCoords, frameTexture), 1.0);
+	if (USE_FXAA)
+	{
+		outColor = vec4(applyFxaa(inTexCoords, frameTexture), 1.0);
+	}
+	else
+	{
+		outColor = textureLod(frameTexture, inTexCoords, 0.0);
+	}
 }

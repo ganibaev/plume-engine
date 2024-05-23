@@ -105,6 +105,7 @@ public:
 
 	std::vector<vk::DescriptorSet> get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId);
 
+	static constexpr size_t MAX_BINDING_SLOTS_PER_SET = 10;
 	static constexpr uint32_t NUM_DESCRIPTOR_SETS = static_cast<int>(RegisteredDescriptorSet::eMaxValue);
 private:
 	std::vector<DescriptorSetInfo> _setQueue;

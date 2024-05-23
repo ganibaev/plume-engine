@@ -10,9 +10,9 @@ void DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
 
 	for (auto& set : _setQueue)
 	{
-		set.writes.reserve(10 * FRAME_OVERLAP);
-		set.imageInfos.reserve(10 * FRAME_OVERLAP);
-		set.bufferInfos.reserve(10 * FRAME_OVERLAP);
+		set.writes.reserve(MAX_BINDING_SLOTS_PER_SET * FRAME_OVERLAP);
+		set.imageInfos.reserve(MAX_BINDING_SLOTS_PER_SET * FRAME_OVERLAP);
+		set.bufferInfos.reserve(MAX_BINDING_SLOTS_PER_SET * FRAME_OVERLAP);
 	}
 }
 

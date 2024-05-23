@@ -49,6 +49,13 @@ struct Vertex
 struct RayPushConstants
 {
 	int frame;
+
+	bool USE_TEMPORAL_ACCUMULATION;
+	bool USE_MOTION_VECTORS;
+	bool USE_SHADER_EXECUTION_REORDERING;
+	int MAX_BOUNCES;
+
+	int padding[3];
 };
 
 const uint // enum RTXSets
