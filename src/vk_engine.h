@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "vk_types.h"
+#include "vk_cfg.h"
 #include <vector>
 #include <tuple>
 #include <string>
@@ -31,20 +32,6 @@
 		}																		\
 	} while (0)
 
-constexpr int NUM_TEXTURE_TYPES = 4;
-
-constexpr int NUM_GBUFFER_ATTACHMENTS = 4;
-
-constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
-constexpr uint32_t METALLIC_TEX_SLOT = 1;
-constexpr uint32_t ROUGHNESS_TEX_SLOT = 2;
-constexpr uint32_t NORMAL_MAP_SLOT = 3;
-constexpr uint32_t TLAS_SLOT = 4;
-
-constexpr uint32_t GBUFFER_POSITION_SLOT = 0;
-constexpr uint32_t GBUFFER_NORMAL_SLOT = 1;
-constexpr uint32_t GBUFFER_ALBEDO_SLOT = 2;
-constexpr uint32_t GBUFFER_METALLIC_ROUGHNESS_SLOT = 3;
 
 class PipelineBuilder {
 public:
@@ -100,14 +87,23 @@ struct RayPushConstants
 	int32_t USE_MOTION_VECTORS = true;
 	int32_t USE_SHADER_EXECUTION_REORDERING = true;
 	int32_t MAX_BOUNCES = 12;
+	uint32_t NRC_TILE_WIDTH = NRC_TRAINING_TILE_WIDTH;
+	uint32_t trainingPathIndex;
 
-	int32_t padding[3];
+	uint32_t NRC_MODE;
 };
 
 enum class RenderMode
 {
 	eHybrid = 0,
 	ePathTracing = 1
+};
+
+enum class NeuralRadianceCacheMode
+{
+	eNone = 0,
+	eClassic = 1,
+	eDedicatedTemporalAdaptation = 2
 };
 
 
@@ -174,16 +170,26 @@ struct FrameData
 	vk::CommandBuffer _mainCommandBuffer;
 
 	AllocatedBuffer _objectBuffer;
+
+	AllocatedBuffer _nrcResBufferClassic;
+	AllocatedBuffer _nrcResStagingBufferClassic;
+
+	AllocatedBuffer _nrcResBufferDiffuse;
+	AllocatedBuffer _nrcResStagingBufferDiffuse;
+
+	AllocatedBuffer _nrcResBufferSpecular;
+	AllocatedBuffer _nrcResStagingBufferSpecular;
 };
 
 struct ConfigurationVariables
 {
 	bool DENOISING = true;
 	bool TEMPORAL_ACCUMULATION = true;
-	bool MOTION_VECTORS = true;
+	bool MOTION_VECTORS = false;
 	bool SHADER_EXECUTION_REORDERING = true;
 	bool FXAA = true;
-	int32_t MAX_BOUNCES = 11;
+	int32_t MAX_BOUNCES = 8;
+	NeuralRadianceCacheMode NRC_MODE = NeuralRadianceCacheMode::eDedicatedTemporalAdaptation;
 };
 
 
@@ -259,7 +265,7 @@ public:
 	size_t pad_uniform_buffer_size(size_t originalSize);
 	vk::DeviceSize align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment);
 
-	void fill_supported_extensions();
+	uint32_t rand_int(uint32_t low, uint32_t high);
 
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
@@ -278,6 +284,7 @@ public:
 
 	vk::Image _prevFrameImage;
 	vk::ImageView _prevFrameImageView;
+	uint8_t _prevSwapchainImageIndex = 0;
 
 	void image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 		vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
@@ -285,6 +292,11 @@ public:
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 	void switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering);
 	void switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd);
+
+	void memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+		vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage);
+	void buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+		vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage);
 
 	vk::ImageView _depthImageView;
 	vk::Image _depthImage;
@@ -315,10 +327,45 @@ public:
 
 	vk::Image _ptPositionImage;
 	vk::Image _prevPositionImage;
+
+	vk::Image _queryTypeImage;
+
 	vk::Image _motionVectorImage;
 	vk::RenderingAttachmentInfo _motionVectorAttachment;
 	vk::ImageView _motionVectorImageView;
 	constexpr static vk::Format _motionVectorFormat = vk::Format::eR32G32Sfloat;
+
+	AllocatedBuffer _trainingDataBufferClassic;
+	AllocatedBuffer _trainingTargetsBufferClassic;
+	AllocatedBuffer _sharedBufferClassic;
+	AllocatedBuffer _queryBufferClassic;
+
+	AllocatedBuffer _trainingDataBufferDiffuse;
+	AllocatedBuffer _trainingTargetsBufferDiffuse;
+	AllocatedBuffer _sharedBufferDiffuse;
+	AllocatedBuffer _queryBufferDiffuse;
+
+	AllocatedBuffer _trainingDataBufferSpecular;
+	AllocatedBuffer _trainingTargetsBufferSpecular;
+	AllocatedBuffer _sharedBufferSpecular;
+	AllocatedBuffer _queryBufferSpecular;
+	
+	size_t _trainingTargetsSize = 0;
+
+	size_t _trainingDataSizeClassic = 0;
+	size_t _querySizeClassic = 0;
+	
+	size_t _trainingDataSizeDiffuse = 0;
+	size_t _querySizeDiffuse = 0;
+
+	size_t _trainingDataSizeSpecular = 0;
+	size_t _querySizeSpecular = 0;
+
+	size_t _rcResSize = 0;
+
+	std::vector<float> _queryResult;
+	std::vector<float> _queryResultDiffuse;
+	std::vector<float> _queryResultSpecular;
 
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> _rtShaderGroups;
 
@@ -331,7 +378,8 @@ public:
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
-	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
+	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
+		VmaAllocationCreateFlags flags = 0, vk::MemoryPropertyFlags reqFlags = {});
 	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);
 
 	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
@@ -374,6 +422,8 @@ private:
 	void init_swapchain();
 	void init_commands();
 
+	void init_radiance_caches();
+
 	void init_gbuffer_attachments();
 	void create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
 		vk::Image* image = nullptr, vk::ImageView* imageView = nullptr);
@@ -415,8 +465,12 @@ private:
 
 	void update_frame();
 
+	void update_buffer_memory(const float* sourceData, size_t bufferSize,
+		AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer = nullptr);
+
 	template<typename T>
-	void upload_buffer(const std::vector<T>& buffer, AllocatedBuffer& targetBuffer, vk::BufferUsageFlags bufferUsage)
+	void upload_buffer(const std::vector<T>& buffer, AllocatedBuffer& targetBuffer, vk::BufferUsageFlags bufferUsage,
+		vk::CommandBuffer* extCmd = nullptr)
 	{
 		const size_t bufferSize = buffer.size() * sizeof(T);
 
@@ -455,20 +509,35 @@ private:
 			vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
 			VkBuffer cBuffer;
+			auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
 
-			VK_CHECK(vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(bufferInfo)), &vmaAllocInfo,
+			VK_CHECK(vmaCreateBuffer(_allocator, &cBufferInfo, &vmaAllocInfo,
 				&cBuffer, &targetBuffer._allocation, nullptr));
 
 			targetBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
 		}
 
-		immediate_submit([=](vk::CommandBuffer cmd) {
+		if (!extCmd)
+		{
+			immediate_submit([=](vk::CommandBuffer cmd) {
+				vk::BufferCopy copy;
+				copy.dstOffset = 0;
+				copy.srcOffset = 0;
+				copy.size = bufferSize;
+				cmd.copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
+			}, _uploadContext._commandBuffer);
+		}
+		else
+		{
 			vk::BufferCopy copy;
 			copy.dstOffset = 0;
 			copy.srcOffset = 0;
 			copy.size = bufferSize;
-			cmd.copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
-		}, _uploadContext._commandBuffer);
+			extCmd->copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
+
+			buffer_memory_barrier(*extCmd, targetBuffer._buffer, vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderRead,
+				vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eFragmentShader);
+		}
 
 		vmaDestroyBuffer(_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 	}

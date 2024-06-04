@@ -54,9 +54,42 @@ struct RayPushConstants
 	bool USE_MOTION_VECTORS;
 	bool USE_SHADER_EXECUTION_REORDERING;
 	int MAX_BOUNCES;
+	uint NRC_TILE_WIDTH;
+	uint trainingPathIndex;
 
-	int padding[3];
+	uint NRC_MODE;
 };
+
+const uint MAX_BOUNCES_LIMIT = 8;
+
+struct ClassicTrainingData
+{
+	vec3 position;
+	vec2 direction;
+	vec2 normal;
+	float roughness;
+	vec3 diffuseAlbedo;
+	vec3 specularReflectance;
+};
+
+struct DiffuseTrainingData
+{
+	vec3 position;
+	vec2 normal;
+	vec3 diffuseAlbedo;
+	bool wasVisible;
+	vec3 prevRadiance;
+};
+
+struct SpecularTrainingData
+{
+	vec3 position;
+	vec2 direction;
+	vec2 normal;
+	float roughness;
+	vec3 specularReflectance;
+};
+
 
 const uint // enum RTXSets
 	eDiffuseTex = 0,
@@ -68,3 +101,13 @@ const uint // enum RTXSets
 	ePerFrame = 6,
 	eGeneralRTX = 7,
 	eGlobal = 8;
+
+const uint // enum NeuralRadianceCacheMode
+	eNone = 0,
+	eClassic = 1,
+	eDedicatedTemporalAdaptation = 2;
+
+const uint // enum CacheType
+	eCacheClassic = 0,
+	eDiffuse = 1,
+	eSpecular = 2;

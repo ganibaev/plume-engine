@@ -9,16 +9,97 @@
 #extension GL_NV_shader_invocation_reorder : enable
 
 #define FLT_EPS 0.00000001
+#define CLIP_RADIUS 50.0
 
 #include "host_device_common.h"
 
 layout (set = eGeneralRTX, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout (set = eGeneralRTX, binding = 1, scalar) writeonly restrict buffer ClassicTrainingDataBuffer
+{
+	ClassicTrainingData vertexData[];
+} classicTrainingData;
+
+layout (set = eGeneralRTX, binding = 2, scalar) writeonly restrict buffer ClassicTrainingTargetsBuffer
+{
+	vec3 targets[];
+} classicTrainingTargets;
+
+layout (set = eGeneralRTX, binding = 3, scalar) buffer ClassicSharedBuffer
+{
+	uint nextAvailable;
+} classicSharedBuffer;
+
+layout (set = eGeneralRTX, binding = 4, scalar) writeonly restrict buffer ClassicQueryDataBuffer
+{
+	ClassicTrainingData queryData[];
+} classicQueryBuffer;
+
+
+
+layout (set = eGeneralRTX, binding = 5, scalar) writeonly restrict buffer DiffuseTrainingDataBuffer
+{
+	DiffuseTrainingData vertexData[];
+} diffuseTrainingData;
+
+layout (set = eGeneralRTX, binding = 6, scalar) writeonly restrict buffer DiffuseTrainingTargetsBuffer
+{
+	vec3 targets[];
+} diffuseTrainingTargets;
+
+layout (set = eGeneralRTX, binding = 7, scalar) buffer DiffuseSharedBuffer
+{
+	uint nextAvailable;
+} diffuseSharedBuffer;
+
+layout (set = eGeneralRTX, binding = 8, scalar) writeonly restrict buffer DiffuseQueryDataBuffer
+{
+	DiffuseTrainingData queryData[];
+} diffuseQueryBuffer;
+
+
+
+layout (set = eGeneralRTX, binding = 9, scalar) writeonly restrict buffer SpecularTrainingDataBuffer
+{
+	SpecularTrainingData vertexData[];
+} specularTrainingData;
+
+layout (set = eGeneralRTX, binding = 10, scalar) writeonly restrict buffer SpecularTrainingTargetsBuffer
+{
+	vec3 targets[];
+} specularTrainingTargets;
+
+layout (set = eGeneralRTX, binding = 11, scalar) buffer SpecularSharedBuffer
+{
+	uint nextAvailable;
+} specularSharedBuffer;
+
+layout (set = eGeneralRTX, binding = 12, scalar) writeonly restrict buffer SpecularQueryDataBuffer
+{
+	SpecularTrainingData queryData[];
+} specularQueryBuffer;
+
 
 layout (set = ePerFrame, binding = 0, rgba32f) uniform image2D outImage;
 layout (set = ePerFrame, binding = 1) uniform sampler2D motionVectors;
 layout (set = ePerFrame, binding = 2) uniform sampler2D frameTexture;
 layout (set = ePerFrame, binding = 3, rgba32f) uniform image2D positionsImage;
 layout (set = ePerFrame, binding = 4) uniform sampler2D prevPositions;
+
+layout (set = ePerFrame, binding = 5, scalar) readonly buffer RcResBuffer
+{
+	vec3 res[];
+} rcResBuffer;
+
+layout (set = ePerFrame, binding = 6, scalar) readonly buffer DiffRcResBuffer
+{
+	vec3 res[];
+} diffRcResBuffer;
+
+layout (set = ePerFrame, binding = 7, scalar) readonly buffer SpecRcResBuffer
+{
+	vec3 res[];
+} specRcResBuffer;
+
 
 layout (set = eGlobal, binding = 0) uniform CameraBuffer
 {
@@ -65,7 +146,118 @@ struct RayData
   vec3 origin;
   vec3 direction;
   vec3 weight;
+
+  float roughness;
+
+  ClassicTrainingData vData;
+  DiffuseTrainingData dvData;
+  SpecularTrainingData svData;
 };
+
+uint getTileIndex()
+{
+	uvec2 ind = uvec2(gl_LaunchIDEXT.x / rayConstants.NRC_TILE_WIDTH, gl_LaunchIDEXT.y / rayConstants.NRC_TILE_WIDTH);
+
+	return gl_LaunchSizeEXT.x * ind.y + ind.x;
+}
+
+uint getInTileIndex()
+{
+	uvec2 ind = uvec2(gl_LaunchIDEXT.x % rayConstants.NRC_TILE_WIDTH, gl_LaunchIDEXT.y % rayConstants.NRC_TILE_WIDTH);
+
+	return rayConstants.NRC_TILE_WIDTH * ind.y + ind.x;
+}
+
+uint getTrainingBufferIndex(uint vertexIndex)
+{
+	return getTileIndex() + vertexIndex;
+}
+
+vec3 getRCBufferColor(uint cache)
+{
+    uint bufferId = uint(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x);
+
+	if (cache == eCacheClassic)
+	{
+		return rcResBuffer.res[bufferId];
+	}
+
+	if (cache == eDiffuse)
+	{
+		return diffRcResBuffer.res[bufferId];
+	}
+	
+	return specRcResBuffer.res[bufferId];
+}
+
+vec3 nrcEncodePosition(in vec3 p)
+{
+	return ((p + CLIP_RADIUS) / (CLIP_RADIUS * 2.0)) * 2.0 - 1.0;
+}
+
+float nrcEncodeRoughness(in float r)
+{
+	return 1 - exp(-r);
+}
+
+void getPrevRadianceAtPos(in vec3 pos, in vec2 frameUV, out bool wasVisible, out vec3 prevRadiance)
+{
+	vec3 posWsCurr = pos;
+	vec3 posWsPrev = pos;
+
+	vec4 screenPosCurr = (camSceneData.camData.viewproj * vec4(posWsCurr, 1));
+	screenPosCurr /= screenPosCurr.w;
+
+	vec4 screenPosPrev = (camSceneData.camData.prevViewProj * vec4(posWsPrev, 1));
+	screenPosPrev /= screenPosPrev.w;
+
+	vec2 prevUV = screenPosPrev.xy * 0.5 + 0.5;
+	vec2 currUV = screenPosCurr.xy * 0.5 + 0.5;
+	vec2 motion = prevUV - currUV + vec2(0.5) / vec2(gl_LaunchSizeEXT.xy);
+
+	vec3 oldPosition = texture(prevPositions, frameUV + motion).xyz;
+
+	wasVisible = (length(oldPosition - pos) > 2.5) || (clamp(prevUV, 0.0, 1.0) != prevUV);
+
+	if (wasVisible)
+	{
+		prevRadiance = texture(frameTexture, frameUV + motion).rgb;
+	}
+	else
+	{
+		prevRadiance = vec3(0.0);
+	}
+}
+
+void queryRadianceCache(in ClassicTrainingData data)
+{
+	uint id = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
+
+	classicQueryBuffer.queryData[id] = data;
+}
+
+void queryRadianceCache(in DiffuseTrainingData data)
+{
+	uint id = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
+
+	diffuseQueryBuffer.queryData[id] = data;
+}
+
+void queryRadianceCache(in SpecularTrainingData data)
+{
+	uint id = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
+
+	specularQueryBuffer.queryData[id] = data;
+}
+
+vec2 toSpherical(in vec3 v)
+{
+	vec3 norm = normalize(v);
+	float theta = atan(length(norm.xy), norm.z);
+	float phi = atan(norm.y, norm.x);
+
+	return vec2(theta, phi);
+}
 
 vec2 hiresToLowres(ivec2 ipos, vec2 jitterOffset)
 {
@@ -80,7 +272,7 @@ float getSampleWeight(vec2 delta, float scale)
     return clamp(1 - scale * dot(delta, delta), 0, 1);
 }
 
-RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
+RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed, out uint vertexType)
 {
 	vec3 L = vec3(0.0);
 	vec3 V = normalize(-r.direction);
@@ -92,7 +284,7 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 
 	int matID = hp.matID;
 
-	if (matID < 0)
+	if (prd.depth >= 100)
 	{
 		return r;
 	}
@@ -112,6 +304,8 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 
 	if (rng(seed) < diffuseProb)
 	{
+		vertexType = eDiffuse;
+
 		L = sampleHemisphere(seed, T, B, N);
 
 		vec3 H = normalize(L + V);
@@ -124,6 +318,8 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 	}
 	else
 	{
+		vertexType = eSpecular;
+
 		vec3 H = sampleGGX(roughness, seed, T, B, N);
 		L = reflect(-V, H);
 
@@ -131,8 +327,42 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 		pdf *= specProb;
 	}
 
+	ClassicTrainingData vertexTrData;
+	vertexTrData.position = nrcEncodePosition(hp.worldPos);
+	vertexTrData.direction = toSpherical(V);
+	vertexTrData.normal = toSpherical(N);
+	vertexTrData.roughness = nrcEncodeRoughness(roughness);
+	vertexTrData.diffuseAlbedo = albedo.rgb;
+	vertexTrData.specularReflectance = mix(vec3(0.04), albedo.rgb, metallic);
+	
+	DiffuseTrainingData diffVertexTrData;
+	diffVertexTrData.position = nrcEncodePosition(hp.worldPos);
+	diffVertexTrData.normal = toSpherical(N);
+	diffVertexTrData.diffuseAlbedo = albedo.rgb;
+
+	vec2 frameUV = vec2(gl_LaunchIDEXT.xy) / gl_LaunchSizeEXT.xy;
+	bool wasVisible;
+	vec3 prevRadiance;
+	getPrevRadianceAtPos(hp.worldPos, frameUV, wasVisible, prevRadiance);
+
+	diffVertexTrData.wasVisible = wasVisible;
+	diffVertexTrData.prevRadiance = prevRadiance;
+
+
+	SpecularTrainingData specVertexTrData;
+	specVertexTrData.position = nrcEncodePosition(hp.worldPos);
+	specVertexTrData.direction = toSpherical(V);
+	specVertexTrData.normal = toSpherical(N);
+	specVertexTrData.roughness = nrcEncodeRoughness(roughness);
+	specVertexTrData.specularReflectance = mix(vec3(0.04), albedo.rgb, metallic);
+
+	r.vData = vertexTrData;
+	r.dvData = diffVertexTrData;
+	r.svData = specVertexTrData;
+
 	r.origin = rayOrigin;
 	r.direction = L;
+	r.roughness = roughness;
 	prd.hitValue = emittance;
 	if (pdf > 0.001)
 	{
@@ -163,10 +393,14 @@ void main()
 	vec4 origin = camSceneData.camData.invView[3];
 	vec4 target = camSceneData.camData.invProj * vec4(d.x, d.y, 1, 1);
 	vec4 direction = camSceneData.camData.invView * vec4(normalize(target.xyz), 0);
-	
+
 	uint rayFlags = gl_RayFlagsNoneEXT;
 	float tMin = 0.001;
 	float tMax = 10000.0;
+
+	vec3 targetValues[MAX_BOUNCES_LIMIT + 1];
+	uint targetValueIds[MAX_BOUNCES_LIMIT + 1];
+	uint vertexTypes[MAX_BOUNCES_LIMIT + 1];
 
 	RayData r;
 
@@ -180,14 +414,27 @@ void main()
 
 	vec3 curWeight = vec3(1.0);
 	vec3 hitValue = vec3(0.0);
-	
+
 	vec3 primaryPos = vec3(0.0);
 
 	HitProperties hp;
 	hp.matID = -1;
 
+	bool primaryMiss = true;
+	int lastTargetId = 0;
+	int vertexId = 0;
+
+	float queryRoughness = 1.0;
+
+	float q = -1.0;
+
 	for (; prd.depth < rayConstants.MAX_BOUNCES + 1; ++prd.depth)
 	{
+		if (prd.depth > 0)
+		{
+			primaryMiss = false;
+		}
+
 		if (rayConstants.USE_SHADER_EXECUTION_REORDERING)
 		{
 			hitObjectNV hObj;
@@ -256,7 +503,75 @@ void main()
 
 		hitValue += prd.hitValue * curWeight;
 
-		r = integrateHitPoint(r, hp, seed);
+		uint vertexType;
+		r = integrateHitPoint(r, hp, seed, vertexType);
+
+		if (prd.depth < 100 && rayConstants.NRC_MODE != eNone)
+		{
+			if (prd.depth == 0)
+			{
+				if (rayConstants.NRC_MODE == eClassic)
+				{
+					queryRadianceCache(r.vData);
+				}
+				else if (vertexType == eDiffuse)
+				{
+					queryRadianceCache(r.dvData);
+				}
+				else
+				{
+					queryRadianceCache(r.svData);
+				}
+
+				queryRoughness = r.roughness;
+			}
+
+			if (getInTileIndex() == rayConstants.trainingPathIndex)
+			{
+				if (rayConstants.NRC_MODE == eClassic)
+				{
+					uint curBufferId = atomicAdd(classicSharedBuffer.nextAvailable, 1);
+					classicTrainingData.vertexData[curBufferId] = r.vData;
+					targetValueIds[vertexId] = curBufferId;
+					targetValues[vertexId] = r.weight;
+
+					classicTrainingTargets.targets[curBufferId] = vec3(-1.0);
+					lastTargetId = vertexId;
+				}
+				else if (vertexType == eDiffuse)
+				{
+					uint curBufferId = atomicAdd(diffuseSharedBuffer.nextAvailable, 1);
+					diffuseTrainingData.vertexData[curBufferId] = r.dvData;
+					targetValueIds[vertexId] = curBufferId;
+					targetValues[vertexId] = r.weight;
+
+					diffuseTrainingTargets.targets[curBufferId] = vec3(-1.0);
+					lastTargetId = vertexId;
+				}
+				else
+				{
+					uint curBufferId = atomicAdd(specularSharedBuffer.nextAvailable, 1);
+					specularTrainingData.vertexData[curBufferId] = r.svData;
+					targetValueIds[vertexId] = curBufferId;
+					targetValues[vertexId] = r.weight;
+
+					specularTrainingTargets.targets[curBufferId] = vec3(-1.0);
+					lastTargetId = vertexId;
+				}
+
+				vertexTypes[vertexId] = vertexType;
+			}
+			else
+			{
+				prd.depth = 80;
+				primaryMiss = false;
+			}
+		}
+
+		if (prd.depth == 100 && getInTileIndex() == rayConstants.trainingPathIndex && rayConstants.NRC_MODE != eNone)
+		{
+			targetValues[lastTargetId] *= prd.hitValue;
+		}
 
 		curWeight *= r.weight;
 
@@ -265,10 +580,11 @@ void main()
 			primaryPos = hp.worldPos;
 		}
 
+		++vertexId;
 		// Russian roulette path termination
-		if (prd.depth > 2)
+		if (prd.depth > 2 && prd.depth < 80)
 		{
-			const float q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
+			q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
 			if (rng(seed) < q)
 			{
 				break;
@@ -338,10 +654,70 @@ void main()
 			oldColor = imageLoad(outImage, ivec2(gl_LaunchIDEXT.xy)).xyz;
 		}
 
-		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(mix(oldColor, hitValue, a), 1.0));
+		if (!primaryMiss)
+		{
+			vec3 resColor;
+
+			switch (rayConstants.NRC_MODE)
+			{
+				case eClassic:
+					resColor = getRCBufferColor(eCacheClassic);
+					break;
+				case eDedicatedTemporalAdaptation:
+					resColor = clamp(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness), 0.0, 1.0);
+					break;
+				default:
+					resColor = mix(oldColor, hitValue, a);
+					break;
+			}
+
+			imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(resColor, 1.0));
+		}
+		else
+		{
+			imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(prd.hitValue, 1.0));
+		}
 	}
 	else
 	{
-		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.0));
+		vec3 resColor;
+
+		switch (rayConstants.NRC_MODE)
+		{
+			case eClassic:
+				resColor = getRCBufferColor(eCacheClassic);
+				break;
+			case eDedicatedTemporalAdaptation:
+				resColor = clamp(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness), 0.0, 1.0);
+				break;
+			default:
+				resColor = hitValue;
+				break;
+		}
+
+		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(resColor, 1.0));
+	}
+
+	if (getInTileIndex() == rayConstants.trainingPathIndex && rayConstants.NRC_MODE != eNone)
+	{
+		for (int i = lastTargetId; i >= 0; --i)
+		{
+			if (i < lastTargetId)
+			{
+				targetValues[i] *= targetValues[i + 1];
+			}
+			if (rayConstants.NRC_MODE == eClassic)
+			{
+				classicTrainingTargets.targets[targetValueIds[i]] = targetValues[i];
+			}
+			else if (vertexTypes[i] == eDiffuse)
+			{
+				diffuseTrainingTargets.targets[targetValueIds[i]] = targetValues[i];
+			}
+			else
+			{
+				specularTrainingTargets.targets[targetValueIds[i]] = targetValues[i];
+			}
+		}
 	}
 }

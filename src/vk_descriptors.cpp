@@ -1,3 +1,4 @@
+#include "vk_cfg.h"
 #include "vk_descriptors.h"
 #include "vk_initializers.h"
 
@@ -175,7 +176,7 @@ void DescriptorManager::register_buffer(RegisteredDescriptorSet descriptorSetTyp
 			set.bufferInfos.push_back(bufferInfo);
 
 			vk::WriteDescriptorSet bufferWrite = vkinit::write_descriptor_buffer(
-				bufferInfos[i].bufferType, set.sets[i], &(set.bufferInfos[i]), binding);
+				bufferInfos[i].bufferType, set.sets[i], &(set.bufferInfos.back()), binding);
 			
 			set.writes.push_back(bufferWrite);
 			set.writeToSetsAt.push_back(&(set.sets[i]));

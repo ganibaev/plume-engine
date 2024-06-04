@@ -1,7 +1,7 @@
 struct hitPayload
 {
 	vec3 hitValue;
-	uint depth;
+	int depth;
 	vec3 hitPosition;
 	int matID;
 

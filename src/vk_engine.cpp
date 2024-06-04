@@ -9,10 +9,13 @@
 #include "VkBootstrap.h"
 
 #include <fstream>
-
 #include <unordered_map>
+#include <random>
 
 #include <glm/gtx/transform.hpp>
+
+#include "vk_nrc.h"
+#include <tcnn_wrapper/tcnn_wrapper.h>
 
 #ifdef _DEBUG
 	constexpr static bool ENABLE_VALIDATION_LAYERS = true;
@@ -20,8 +23,6 @@
 	constexpr static bool ENABLE_VALIDATION_LAYERS = false;
 #endif // _DEBUG
 
-
-constexpr static float DRAW_DISTANCE = 6000.0f;
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -46,8 +47,8 @@ void VulkanEngine::init()
 		_windowExtent.height,
 		window_flags
 	);
-
 	
+
 	// load core Vulkan structures
 	init_vulkan();
 
@@ -56,6 +57,8 @@ void VulkanEngine::init()
 	init_swapchain();
 
 	init_commands();
+
+	init_radiance_caches();
 
 	init_gbuffer_attachments();
 
@@ -95,13 +98,13 @@ void VulkanEngine::init()
 	_isInitialized = true;
 }
 
-void VulkanEngine::fill_supported_extensions()
+uint32_t VulkanEngine::rand_int(uint32_t low, uint32_t high)
 {
-	std::vector<vk::ExtensionProperties> extensionProperties = vk::enumerateInstanceExtensionProperties();
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> distr(low, high);
 
-	for (auto& extension : extensionProperties) {
-		_supportedExtensions.insert(extension.extensionName);
-	}
+	return distr(gen);
 }
 
 void VulkanEngine::init_vulkan()
@@ -133,6 +136,9 @@ void VulkanEngine::init_vulkan()
 
 	vk::PhysicalDeviceFeatures miscFeatures;
 	miscFeatures.shaderInt64 = VK_TRUE;
+
+	vk::PhysicalDeviceVulkan13Features v13Features;
+	v13Features.synchronization2 = VK_TRUE;
 
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_surface(_surface)
@@ -171,6 +177,8 @@ void VulkanEngine::init_vulkan()
 	addressFeatures.bufferDeviceAddress = VK_TRUE;
 	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures;
 	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+	vk::PhysicalDeviceSynchronization2Features syncFeatures;
+	syncFeatures.synchronization2 = VK_TRUE;
 	vk::PhysicalDeviceScalarBlockLayoutFeatures scalarBlockFeatures;
 	scalarBlockFeatures.scalarBlockLayout = VK_TRUE;
 	vk::PhysicalDeviceShaderClockFeaturesKHR clockFeatures;
@@ -179,7 +187,8 @@ void VulkanEngine::init_vulkan()
 	
 	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures)
 		.add_pNext(&accelFeatures).add_pNext(&rayQueryFeatures).add_pNext(&rtPipelineFeatures).add_pNext(&addressFeatures)
-		.add_pNext(&dynamicRenderingFeatures).add_pNext(&scalarBlockFeatures).add_pNext(&clockFeatures).build().value();
+		.add_pNext(&dynamicRenderingFeatures).add_pNext(&syncFeatures).add_pNext(&scalarBlockFeatures).add_pNext(&clockFeatures)
+		.build().value();
 
 	// get vk::Device handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
@@ -210,7 +219,7 @@ void VulkanEngine::init_swapchain()
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		.use_default_format_selection()
 		.set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) // set vsync mode
+		.set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR) // set vsync mode
 		.set_desired_extent(_windowExtent.width, _windowExtent.height)
 		.build()
 		.value();
@@ -396,6 +405,38 @@ void VulkanEngine::switch_frame_image_layout(vk::Image image, vk::CommandBuffer 
 		{}, {}, {}, transferToWritable);
 }
 
+void VulkanEngine::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
+{
+	vk::MemoryBarrier2 barrier;
+	barrier.srcAccessMask = srcMask;
+	barrier.dstAccessMask = dstMask;
+	barrier.srcStageMask = srcStage;
+	barrier.dstStageMask = dstStage;
+
+	vk::DependencyInfo depInfo;
+	depInfo.setMemoryBarriers(barrier);
+
+	cmd.pipelineBarrier2(depInfo);
+}
+
+void VulkanEngine::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
+{
+	vk::BufferMemoryBarrier2 barrier;
+	barrier.srcAccessMask = srcMask;
+	barrier.dstAccessMask = dstMask;
+	barrier.srcStageMask = srcStage;
+	barrier.dstStageMask = dstStage;
+	barrier.buffer = buffer;
+	barrier.size = VK_WHOLE_SIZE;
+
+	vk::DependencyInfo depInfo;
+	depInfo.setBufferMemoryBarriers(barrier);
+
+	cmd.pipelineBarrier2(depInfo);
+}
+
 FrameData& VulkanEngine::get_current_frame()
 {
 	return _frames[_frameNumber % FRAME_OVERLAP];
@@ -433,6 +474,361 @@ void VulkanEngine::init_commands()
 			_device.destroyCommandPool(_frames[i]._commandPool);
 		});
 	}
+}
+
+void VulkanEngine::init_radiance_caches()
+{
+	std::ifstream diffIf("../../../configs/dta-diffuse-config.json");
+	nlohmann::json dta_diffuse_config = nlohmann::json::parse(diffIf);
+
+	vktcnn::create_cache_from_config(12, 3, dta_diffuse_config, vktcnn::CacheType::eDiffuse);
+
+	std::ifstream specIf("../../../configs/dta-specular-config.json");
+	nlohmann::json dta_specular_config = nlohmann::json::parse(specIf);
+
+	vktcnn::create_cache_from_config(11, 3, dta_specular_config, vktcnn::CacheType::eSpecular);
+
+	std::ifstream classicIf("../../../configs/nrc-config.json");
+	nlohmann::json nrc_config = nlohmann::json::parse(classicIf);
+
+	vktcnn::create_cache_from_config(14, 3, nrc_config, vktcnn::CacheType::eClassic);
+
+	_mainDeletionQueue.push_function([=]() {
+		vktcnn::terminate();
+	});
+
+
+	_rcResSize = 3 * _windowExtent.height * _windowExtent.width * sizeof(float);
+
+	_trainingTargetsSize = ceil(static_cast<float>(_windowExtent.width) * _windowExtent.height *
+		sizeof(glm::vec3) * (MAX_BOUNCES_LIMIT) / (NRC_TRAINING_TILE_WIDTH * NRC_TRAINING_TILE_WIDTH));
+
+
+	_trainingDataSizeClassic = ceil(static_cast<float>(_windowExtent.width) * _windowExtent.height *
+		sizeof(vknrc::ClassicTrainingData) * (MAX_BOUNCES_LIMIT) / (NRC_TRAINING_TILE_WIDTH * NRC_TRAINING_TILE_WIDTH));
+
+	_querySizeClassic = _windowExtent.height * _windowExtent.width * sizeof(vknrc::ClassicTrainingData);
+
+
+	_trainingDataSizeDiffuse = ceil(static_cast<float>(_windowExtent.width) * _windowExtent.height *
+		sizeof(vknrc::DiffuseTrainingData) * (MAX_BOUNCES_LIMIT + 1) / (NRC_TRAINING_TILE_WIDTH * NRC_TRAINING_TILE_WIDTH));
+
+	_querySizeDiffuse = _windowExtent.height * _windowExtent.width * sizeof(vknrc::DiffuseTrainingData);
+
+
+	_trainingDataSizeSpecular = ceil(static_cast<float>(_windowExtent.width) * _windowExtent.height *
+		sizeof(vknrc::SpecularTrainingData) * (MAX_BOUNCES_LIMIT + 1) / (NRC_TRAINING_TILE_WIDTH * NRC_TRAINING_TILE_WIDTH));
+
+	_querySizeSpecular = _windowExtent.height * _windowExtent.width * sizeof(vknrc::SpecularTrainingData);
+
+
+	_queryResult.resize(3 * _windowExtent.height * _windowExtent.width);
+	_queryResultDiffuse.resize(3 * _windowExtent.height * _windowExtent.width);
+	_queryResultSpecular.resize(3 * _windowExtent.height * _windowExtent.width);
+
+	// ---------------------------------- CLASSIC ----------------------------------
+	// Create training data buffers
+	_trainingDataBufferClassic = create_buffer(_trainingDataSizeClassic, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo trainingInfoClassic;
+	trainingInfoClassic.buffer = _trainingDataBufferClassic._buffer;
+	trainingInfoClassic.bufferType = vk::DescriptorType::eStorageBuffer;
+	trainingInfoClassic.offset = 0;
+	trainingInfoClassic.range = _trainingDataSizeClassic;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { trainingInfoClassic }, 1);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingDataBufferClassic._buffer, _trainingDataBufferClassic._allocation);
+		});
+
+
+	// Create buffer of targets
+	_trainingTargetsBufferClassic = create_buffer(_trainingTargetsSize, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo targetInfo;
+	targetInfo.buffer = _trainingTargetsBufferClassic._buffer;
+	targetInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	targetInfo.offset = 0;
+	targetInfo.range = _trainingTargetsSize;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { targetInfo }, 2);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingTargetsBufferClassic._buffer, _trainingTargetsBufferClassic._allocation);
+		});
+
+	// Create shared buffer
+	_sharedBufferClassic = create_buffer(sizeof(uint32_t), vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo sharedInfo;
+	sharedInfo.buffer = _sharedBufferClassic._buffer;
+	sharedInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	sharedInfo.offset = 0;
+	sharedInfo.range = sizeof(uint32_t);
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { sharedInfo }, 3);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _sharedBufferClassic._buffer, _sharedBufferClassic._allocation);
+		});
+
+	// Create query buffer
+
+	_queryBufferClassic = create_buffer(_querySizeClassic, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo queryInfo;
+	queryInfo.buffer = _queryBufferClassic._buffer;
+	queryInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	queryInfo.offset = 0;
+	queryInfo.range = _querySizeClassic;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { queryInfo }, 4);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _queryBufferClassic._buffer, _queryBufferClassic._allocation);
+		});
+
+	//// Create results buffer
+
+	std::vector<BufferInfo> resInfos(FRAME_OVERLAP);
+
+	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		_frames[i]._nrcResBufferClassic = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eStorageBuffer |
+			vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+			VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+		vmaGetAllocationMemoryProperties(_allocator, _frames[i]._nrcResBufferClassic._allocation, &_frames[i]._nrcResBufferClassic._memPropFlags);
+
+		if (!(_frames[i]._nrcResBufferClassic._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+		{
+			_frames[i]._nrcResStagingBufferClassic = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eTransferSrc,
+				VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+		}
+
+		resInfos[i].buffer = _frames[i]._nrcResBufferClassic._buffer;
+		resInfos[i].bufferType = vk::DescriptorType::eStorageBuffer;
+		resInfos[i].offset = 0;
+		resInfos[i].range = _queryResult.size() * sizeof(float);
+
+		_mainDeletionQueue.push_function([=]() {
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResBufferClassic._buffer, _frames[i]._nrcResBufferClassic._allocation);
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResStagingBufferClassic._buffer, _frames[i]._nrcResStagingBufferClassic._allocation);
+			});
+	}
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, resInfos, 5,
+		1, true);
+
+
+	// ---------------------------------- DIFFUSE ----------------------------------
+	// Create training data buffers
+	_trainingDataBufferDiffuse = create_buffer(_trainingDataSizeDiffuse, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo trainingInfoDiffuse;
+	trainingInfoDiffuse.buffer = _trainingDataBufferDiffuse._buffer;
+	trainingInfoDiffuse.bufferType = vk::DescriptorType::eStorageBuffer;
+	trainingInfoDiffuse.offset = 0;
+	trainingInfoDiffuse.range = _trainingDataSizeDiffuse;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { trainingInfoDiffuse }, 5);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingDataBufferDiffuse._buffer, _trainingDataBufferDiffuse._allocation);
+		});
+
+
+	// Create buffer of targets
+	_trainingTargetsBufferDiffuse = create_buffer(_trainingTargetsSize, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	targetInfo.buffer = _trainingTargetsBufferDiffuse._buffer;
+	targetInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	targetInfo.offset = 0;
+	targetInfo.range = _trainingTargetsSize;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { targetInfo }, 6);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingTargetsBufferDiffuse._buffer, _trainingTargetsBufferDiffuse._allocation);
+		});
+
+	// Create shared buffer
+	_sharedBufferDiffuse = create_buffer(sizeof(uint32_t), vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	sharedInfo.buffer = _sharedBufferDiffuse._buffer;
+	sharedInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	sharedInfo.offset = 0;
+	sharedInfo.range = sizeof(uint32_t);
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { sharedInfo }, 7);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _sharedBufferDiffuse._buffer, _sharedBufferDiffuse._allocation);
+		});
+
+	// Create query buffer
+
+	_queryBufferDiffuse = create_buffer(_querySizeDiffuse, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	queryInfo.buffer = _queryBufferDiffuse._buffer;
+	queryInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	queryInfo.offset = 0;
+	queryInfo.range = _querySizeDiffuse;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { queryInfo }, 8);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _queryBufferDiffuse._buffer, _queryBufferDiffuse._allocation);
+		});
+
+	//// Create results buffer
+
+	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		_frames[i]._nrcResBufferDiffuse = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eStorageBuffer |
+			vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+			VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+		vmaGetAllocationMemoryProperties(_allocator, _frames[i]._nrcResBufferDiffuse._allocation, &_frames[i]._nrcResBufferDiffuse._memPropFlags);
+
+		if (!(_frames[i]._nrcResBufferDiffuse._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+		{
+			_frames[i]._nrcResStagingBufferDiffuse = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eTransferSrc,
+				VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+		}
+
+		resInfos[i].buffer = _frames[i]._nrcResBufferDiffuse._buffer;
+		resInfos[i].bufferType = vk::DescriptorType::eStorageBuffer;
+		resInfos[i].offset = 0;
+		resInfos[i].range = _queryResult.size() * sizeof(float);
+
+		_mainDeletionQueue.push_function([=]() {
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResBufferDiffuse._buffer, _frames[i]._nrcResBufferDiffuse._allocation);
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResStagingBufferDiffuse._buffer, _frames[i]._nrcResStagingBufferDiffuse._allocation);
+			});
+	}
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, resInfos, 6,
+		1, true);
+
+
+	// ---------------------------------- SPECULAR ----------------------------------
+	// Create training data buffers
+	_trainingDataBufferSpecular = create_buffer(_trainingDataSizeSpecular, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	BufferInfo trainingInfoSpecular;
+	trainingInfoSpecular.buffer = _trainingDataBufferSpecular._buffer;
+	trainingInfoSpecular.bufferType = vk::DescriptorType::eStorageBuffer;
+	trainingInfoSpecular.offset = 0;
+	trainingInfoSpecular.range = _trainingDataSizeSpecular;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { trainingInfoSpecular }, 9);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingDataBufferSpecular._buffer, _trainingDataBufferSpecular._allocation);
+		});
+
+
+	// Create buffer of targets
+	_trainingTargetsBufferSpecular = create_buffer(_trainingTargetsSize, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	targetInfo.buffer = _trainingTargetsBufferSpecular._buffer;
+	targetInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	targetInfo.offset = 0;
+	targetInfo.range = _trainingTargetsSize;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { targetInfo }, 10);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _trainingTargetsBufferSpecular._buffer, _trainingTargetsBufferSpecular._allocation);
+		});
+
+	// Create shared buffer
+	_sharedBufferSpecular = create_buffer(sizeof(uint32_t), vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	sharedInfo.buffer = _sharedBufferSpecular._buffer;
+	sharedInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	sharedInfo.offset = 0;
+	sharedInfo.range = sizeof(uint32_t);
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { sharedInfo }, 11);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _sharedBufferSpecular._buffer, _sharedBufferSpecular._allocation);
+		});
+
+	// Create query buffer
+
+	_queryBufferSpecular = create_buffer(_querySizeSpecular, vk::BufferUsageFlagBits::eStorageBuffer |
+		vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+		VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+	queryInfo.buffer = _queryBufferSpecular._buffer;
+	queryInfo.bufferType = vk::DescriptorType::eStorageBuffer;
+	queryInfo.offset = 0;
+	queryInfo.range = _querySizeSpecular;
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR, { queryInfo }, 12);
+
+	_mainDeletionQueue.push_function([=]() {
+		vmaDestroyBuffer(_allocator, _queryBufferSpecular._buffer, _queryBufferSpecular._allocation);
+		});
+
+	//// Create results buffer
+
+	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
+	{
+		_frames[i]._nrcResBufferSpecular = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eStorageBuffer |
+			vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+			VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+		vmaGetAllocationMemoryProperties(_allocator, _frames[i]._nrcResBufferSpecular._allocation, &_frames[i]._nrcResBufferSpecular._memPropFlags);
+
+		if (!(_frames[i]._nrcResBufferSpecular._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+		{
+			_frames[i]._nrcResStagingBufferSpecular = create_buffer(_rcResSize, vk::BufferUsageFlagBits::eTransferSrc,
+				VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+		}
+
+		resInfos[i].buffer = _frames[i]._nrcResBufferSpecular._buffer;
+		resInfos[i].bufferType = vk::DescriptorType::eStorageBuffer;
+		resInfos[i].offset = 0;
+		resInfos[i].range = _queryResult.size() * sizeof(float);
+
+		_mainDeletionQueue.push_function([=]() {
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResBufferSpecular._buffer, _frames[i]._nrcResBufferSpecular._allocation);
+			vmaDestroyBuffer(_allocator, _frames[i]._nrcResStagingBufferSpecular._buffer, _frames[i]._nrcResStagingBufferSpecular._allocation);
+			});
+	}
+
+	_descMng.register_buffer(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, resInfos, 7,
+		1, true);
 }
 
 void VulkanEngine::init_gbuffer_attachments()
@@ -552,6 +948,25 @@ void VulkanEngine::init_gbuffer_attachments()
 		prevPosInfos, 4, 1, false, true);
 
 
+	auto queryTypeImageCreateInfo = vkinit::image_create_info(vk::Format::eR8Uint,
+		vk::ImageUsageFlagBits::eStorage, _windowExtent3D, 1, vk::SampleCountFlagBits::e1);
+	auto queryTypeImage = create_image(queryTypeImageCreateInfo, VMA_MEMORY_USAGE_GPU_ONLY);
+	_queryTypeImage = queryTypeImage._image;
+
+	vk::ImageViewCreateInfo queryTypeViewCreateInfo = vkinit::image_view_create_info(vk::Format::eR8Uint,
+		queryTypeImage._image, vk::ImageAspectFlagBits::eColor, 1);
+	auto queryTypeImageView = _device.createImageView(queryTypeViewCreateInfo);
+
+	ImageInfo queryTypeInfo;
+	queryTypeInfo.imageType = vk::DescriptorType::eStorageImage;
+	queryTypeInfo.imageView = queryTypeImageView;
+	queryTypeInfo.layout = vk::ImageLayout::eGeneral;
+	queryTypeInfo.sampler = gBufferSampler;
+
+	_descMng.register_image(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR,
+		{ queryTypeInfo }, 13);
+
+
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyImageView(_lightingDepthImageView);
 		_device.destroyImageView(_depthImageView);
@@ -561,6 +976,9 @@ void VulkanEngine::init_gbuffer_attachments()
 
 		vmaDestroyImage(_allocator, prevPositionsImage._image, prevPositionsImage._allocation);
 		_device.destroyImageView(prevPositionsImageView);
+
+		vmaDestroyImage(_allocator, queryTypeImage._image, queryTypeImage._allocation);
+		_device.destroyImageView(queryTypeImageView);
 
 		_device.destroySampler(gBufferSampler);
 	});
@@ -1821,6 +2239,30 @@ void VulkanEngine::update_frame()
 	++_rayConstants.frame;
 }
 
+void VulkanEngine::update_buffer_memory(const float* sourceData, size_t bufferSize,
+	AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer/* = nullptr*/)
+{
+	if (targetBuffer._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	{
+		memcpy(targetBuffer._allocationInfo.pMappedData, sourceData, bufferSize);
+	}
+	else
+	{
+		memcpy(stagingBuffer->_allocationInfo.pMappedData, sourceData, bufferSize);
+		vmaFlushAllocation(_allocator, stagingBuffer->_allocation, 0, VK_WHOLE_SIZE);
+
+		buffer_memory_barrier(*cmd, stagingBuffer->_buffer, vk::AccessFlagBits2::eHostWrite, vk::AccessFlagBits2::eTransferRead,
+			vk::PipelineStageFlagBits2::eHost, vk::PipelineStageFlagBits2::eCopy);
+
+		vk::BufferCopy bufCopy;
+		bufCopy.srcOffset = 0;
+		bufCopy.dstOffset = 0;
+		bufCopy.size = bufferSize;
+
+		cmd->copyBuffer(stagingBuffer->_buffer, targetBuffer._buffer, bufCopy);
+	}
+}
+
 void VulkanEngine::init_scene()
 {
 	RenderObject suzanne = {};
@@ -1910,7 +2352,7 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 }
 
 void VulkanEngine::cleanup()
-{	
+{
 	if (_isInitialized) {
 		--_frameNumber;
 		VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
@@ -1947,7 +2389,74 @@ void VulkanEngine::draw()
 	cmdBeginInfo.pInheritanceInfo = nullptr; // no secondary command buffers
 	cmdBeginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 
+	FrameData& curFrame = _frames[swapchainImageIndex];
+	FrameData& prevFrame = _frames[_prevSwapchainImageIndex];
+	if (_frameNumber > 0 && _cfg.NRC_MODE != NeuralRadianceCacheMode::eNone)
+	{
+		if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eClassic)
+		{
+			auto pInputs = reinterpret_cast<float*>(_trainingDataBufferClassic._allocationInfo.pMappedData);
+
+			auto pTargets = reinterpret_cast<float*>(_trainingTargetsBufferClassic._allocationInfo.pMappedData);
+
+			auto pFinalDataSize = reinterpret_cast<uint32_t*>(_sharedBufferClassic._allocationInfo.pMappedData);
+
+			auto pQueries = reinterpret_cast<float*>(_queryBufferClassic._allocationInfo.pMappedData);
+
+			vktcnn::train(*pFinalDataSize, pInputs, pTargets, vktcnn::CacheType::eClassic);
+			vktcnn::inference(_windowExtent.width * _windowExtent.height, pQueries,
+				_queryResult.data(), vktcnn::CacheType::eClassic);
+		}
+		else
+		{
+			auto pInputsDiffuse = reinterpret_cast<float*>(_trainingDataBufferDiffuse._allocationInfo.pMappedData);
+
+			auto pTargetsDiffuse = reinterpret_cast<float*>(_trainingTargetsBufferDiffuse._allocationInfo.pMappedData);
+			std::span trainingTargetsReadback(pTargetsDiffuse, _trainingTargetsSize);
+
+			auto pFinalDataSizeDiffuse = reinterpret_cast<uint32_t*>(_sharedBufferDiffuse._allocationInfo.pMappedData);
+
+			auto pQueriesDiffuse = reinterpret_cast<float*>(_queryBufferDiffuse._allocationInfo.pMappedData);
+
+			vktcnn::train(*pFinalDataSizeDiffuse, pInputsDiffuse, pTargetsDiffuse, vktcnn::CacheType::eDiffuse);
+			vktcnn::inference(_windowExtent.width * _windowExtent.height, pQueriesDiffuse,
+				_queryResultDiffuse.data(), vktcnn::CacheType::eDiffuse);
+
+
+			auto pInputsSpecular = reinterpret_cast<float*>(_trainingDataBufferSpecular._allocationInfo.pMappedData);
+
+			auto pTargetsSpecular = reinterpret_cast<float*>(_trainingTargetsBufferSpecular._allocationInfo.pMappedData);
+
+			auto pFinalDataSizeSpecular = reinterpret_cast<uint32_t*>(_sharedBufferSpecular._allocationInfo.pMappedData);
+
+			auto pQueriesSpecular = reinterpret_cast<float*>(_queryBufferSpecular._allocationInfo.pMappedData);
+
+			vktcnn::train(*pFinalDataSizeSpecular, pInputsSpecular, pTargetsSpecular, vktcnn::CacheType::eSpecular);
+			vktcnn::inference(_windowExtent.width * _windowExtent.height, pQueriesSpecular,
+				_queryResultSpecular.data(), vktcnn::CacheType::eSpecular);
+		}
+	}
+
+	_prevSwapchainImageIndex = swapchainImageIndex;
+
 	cmd.begin(cmdBeginInfo);
+
+	if (_frameNumber > 0 && _cfg.NRC_MODE != NeuralRadianceCacheMode::eNone)
+	{
+		if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eClassic)
+		{
+			update_buffer_memory(_queryResult.data(), _rcResSize, _frames[swapchainImageIndex]._nrcResBufferClassic, &cmd,
+				&_frames[swapchainImageIndex]._nrcResStagingBufferClassic);
+		}
+		else
+		{
+			update_buffer_memory(_queryResultDiffuse.data(), _rcResSize, _frames[swapchainImageIndex]._nrcResBufferDiffuse, &cmd,
+				&_frames[swapchainImageIndex]._nrcResStagingBufferDiffuse);
+
+			update_buffer_memory(_queryResultSpecular.data(), _rcResSize, _frames[swapchainImageIndex]._nrcResBufferSpecular, &cmd,
+				&_frames[swapchainImageIndex]._nrcResStagingBufferSpecular);
+		}
+	}
 
 	vk::ClearValue clearValue;
 	clearValue.color = vk::ClearColorValue({ 2.0f / 255.0f, 150.0f / 255.0f, 254.0f / 255.0f, 1.0f });
@@ -2071,12 +2580,26 @@ void VulkanEngine::draw()
 	}
 	else if (_renderMode == RenderMode::ePathTracing)
 	{
+		if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eClassic)
+		{
+			cmd.fillBuffer(_sharedBufferClassic._buffer, 0, sizeof(uint32_t), 0);
+		}
+		else if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eDedicatedTemporalAdaptation)
+		{
+			cmd.fillBuffer(_sharedBufferDiffuse._buffer, 0, sizeof(uint32_t), 0);
+			cmd.fillBuffer(_sharedBufferSpecular._buffer, 0, sizeof(uint32_t), 0);
+		}
+
 		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
 			vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral, _ptPositionImage,
 			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 
 		image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryRead,
 			vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal, _prevPositionImage,
+			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
+
+		image_layout_transition(cmd, {}, vk::AccessFlagBits::eShaderRead,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral, _queryTypeImage,
 			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 
 		cmd.beginRendering(mvPassRenderInfo);
@@ -2090,6 +2613,60 @@ void VulkanEngine::draw()
 			vk::ImageAspectFlagBits::eColor, vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 
 		trace_rays(cmd, swapchainImageIndex);
+
+		if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eClassic)
+		{
+			buffer_memory_barrier(cmd, _trainingDataBufferClassic._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _trainingTargetsBufferClassic._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _sharedBufferClassic._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _queryBufferClassic._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+		}
+		else if (_cfg.NRC_MODE == NeuralRadianceCacheMode::eDedicatedTemporalAdaptation)
+		{
+			buffer_memory_barrier(cmd, _trainingDataBufferDiffuse._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _trainingTargetsBufferDiffuse._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _sharedBufferDiffuse._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _queryBufferDiffuse._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+
+			buffer_memory_barrier(cmd, _trainingDataBufferSpecular._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _trainingTargetsBufferSpecular._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _sharedBufferSpecular._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+
+			buffer_memory_barrier(cmd, _queryBufferSpecular._buffer,
+				vk::AccessFlagBits2::eShaderStorageWrite, vk::AccessFlagBits2::eHostRead, vk::PipelineStageFlagBits2::eRayTracingShaderKHR,
+				vk::PipelineStageFlagBits2::eHost);
+		}
 
 		//image_layout_transition(cmd, {}, vk::AccessFlagBits::eMemoryWrite, vk::ImageLayout::eUndefined,
 		//	vk::ImageLayout::eTransferDstOptimal, _swapchainImages[swapchainImageIndex], vk::ImageAspectFlagBits::eColor,
@@ -2144,7 +2721,7 @@ void VulkanEngine::draw()
 	// transfer swapchain image to presentable layout
 
 	switch_swapchain_image_layout(cmd, swapchainImageIndex, false);
-
+	
 	// stop recording to command buffer (we can no longer add commands, but it can now be submitted and executed)
 	cmd.end();
 
@@ -2174,7 +2751,7 @@ void VulkanEngine::draw()
 
 	// display image
 	// wait on render semaphore so that rendered image is complete 
-
+	
 	vk::PresentInfoKHR presentInfo = {};
 	presentInfo.pSwapchains = &_swapchain;
 	presentInfo.swapchainCount = 1;
@@ -2211,7 +2788,8 @@ vk::DeviceSize VulkanEngine::align_up(vk::DeviceSize originalSize, vk::DeviceSiz
 	return alignedSize;
 }
 
-AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage)
+AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
+	VmaAllocationCreateFlags flags/* = 0 */, vk::MemoryPropertyFlags reqFlags/* = {}*/)
 {
 	vk::BufferCreateInfo bufferInfo = {};
 	bufferInfo.size = allocSize;
@@ -2219,12 +2797,15 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFla
 
 	VmaAllocationCreateInfo vmaAllocInfo = {};
 	vmaAllocInfo.usage = memUsage;
+	vmaAllocInfo.flags = flags;
+	vmaAllocInfo.requiredFlags = static_cast<VkMemoryPropertyFlags>(reqFlags);
 
 	AllocatedBuffer newBuffer;
 
 	VkBuffer cBuffer;
-	VK_CHECK( vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(bufferInfo)), &vmaAllocInfo,
-		&cBuffer, &newBuffer._allocation, nullptr) );
+	auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
+	VK_CHECK( vmaCreateBuffer(_allocator, &cBufferInfo, &vmaAllocInfo,
+		&cBuffer, &newBuffer._allocation, &newBuffer._allocationInfo) );
 
 	newBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
 	return newBuffer;
@@ -2567,7 +3148,7 @@ void VulkanEngine::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 {
 	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::rendering_attachment_info(targetImageView,
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, {});
-	
+
 	vk::RenderingInfo uiRenderInfo;
 	uiRenderInfo.renderArea.extent = _windowExtent;
 	uiRenderInfo.layerCount = 1;
@@ -2608,6 +3189,9 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	_rayConstants.USE_MOTION_VECTORS = _cfg.MOTION_VECTORS;
 	_rayConstants.USE_SHADER_EXECUTION_REORDERING = _cfg.SHADER_EXECUTION_REORDERING;
 	_rayConstants.USE_TEMPORAL_ACCUMULATION = _cfg.TEMPORAL_ACCUMULATION;
+	_rayConstants.NRC_MODE = static_cast<uint32_t>(_cfg.NRC_MODE);
+
+	_rayConstants.trainingPathIndex = rand_int(0, NRC_TRAINING_TILE_WIDTH * NRC_TRAINING_TILE_WIDTH - 1);
 
 	// upload to GPU
 	cmd.pushConstants(rtMaterial->pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0,
@@ -2769,10 +3353,11 @@ void VulkanEngine::run()
 			ImGui_ImplSDL3_NewFrame();
 			ImGui::NewFrame();
 
+			ImGui::SetNextWindowSize(ImVec2(300, 300));
 			ImGui::Begin("Options");
 			if (_renderMode == RenderMode::ePathTracing)
 			{
-				ImGui::SliderInt("Max Bounces", &_cfg.MAX_BOUNCES, 0, 30);
+				ImGui::SliderInt("Max Bounces", &_cfg.MAX_BOUNCES, 1, MAX_BOUNCES_LIMIT);
 				ImGui::Checkbox("Use Denoising", &_cfg.DENOISING);
 				ImGui::Checkbox("Use Temporal Accumulation", &_cfg.TEMPORAL_ACCUMULATION);
 				bool prevMv = _cfg.MOTION_VECTORS;
@@ -2782,6 +3367,19 @@ void VulkanEngine::run()
 					reset_frame();
 				}
 				ImGui::Checkbox("Use Shader Execution Reordering", &_cfg.SHADER_EXECUTION_REORDERING);
+
+				if (ImGui::TreeNode("Neural Radiance Cache Mode"))
+				{
+					if (ImGui::Selectable("None", _cfg.NRC_MODE == NeuralRadianceCacheMode::eNone))
+					{
+						_cfg.NRC_MODE = NeuralRadianceCacheMode::eNone;
+					}
+					else if (ImGui::Selectable("Dedicated Temporal Adaptation", _cfg.NRC_MODE == NeuralRadianceCacheMode::eDedicatedTemporalAdaptation))
+					{
+						_cfg.NRC_MODE = NeuralRadianceCacheMode::eDedicatedTemporalAdaptation;
+					}
+					ImGui::TreePop();
+				}
 			}
 			else if (_renderMode == RenderMode::eHybrid)
 			{
