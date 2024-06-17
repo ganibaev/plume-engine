@@ -19,6 +19,12 @@ struct RadianceCache
 	uint32_t inputDims;
 	uint32_t outputDims;
     tcnn::TrainableModel model;
+
+	float* trainingDataBuffer = nullptr;
+	float* trainingTargetsBuffer = nullptr;
+	float* queryBuffer = nullptr;
+
+	float* resBuffer = nullptr;
 };
 
 static RadianceCache diffuseRC;
@@ -61,7 +67,31 @@ void vktcnn::create_cache_from_config(uint32_t inputDims, uint32_t outputDims, n
 	}
 }
 
-void vktcnn::train(uint32_t numElements, const float* inputs, const float* targets, CacheType cacheType)
+float* vktcnn::get_external_memory_ptr(HANDLE handle, uint64_t size)
+{
+	cudaExternalMemory_t ext = nullptr;
+
+	cudaExternalMemoryHandleDesc desc = {};
+	desc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
+	desc.handle.win32.handle = handle;
+	desc.size = size;
+
+	CUDA_CHECK_THROW(cudaImportExternalMemory(&ext, &desc));
+
+	void* ptr = nullptr;
+
+	cudaExternalMemoryBufferDesc bDesc = {};
+	bDesc.flags = 0;
+	bDesc.offset = 0;
+	bDesc.size = size;
+
+	CUDA_CHECK_THROW(cudaExternalMemoryGetMappedBuffer(&ptr, ext, &bDesc));
+
+	return reinterpret_cast<float*>(ptr);
+}
+
+void vktcnn::train(uint32_t numElements, const HANDLE inputs, const HANDLE targets, CacheType cacheType,
+	size_t inputBufferSize, size_t targetBufferSize)
 {
 	RadianceCache* cache = nullptr;
 	switch (cacheType)
@@ -76,7 +106,7 @@ void vktcnn::train(uint32_t numElements, const float* inputs, const float* targe
 		cache = &classicRC;
 		break;
 	default:
-		break;
+		return;
 	}
 
 	if (numElements < tcnn::batch_size_granularity * TRAINING_STEPS_PER_FRAME)
@@ -84,27 +114,33 @@ void vktcnn::train(uint32_t numElements, const float* inputs, const float* targe
 		return;
 	}
 
-	tcnn::GPUMemory<float> inputMemory(numElements * cache->inputDims);
-	tcnn::GPUMemory<float> targetMemory(numElements * cache->outputDims);
+	if (!cache->trainingDataBuffer)
+	{
+		cache->trainingDataBuffer = get_external_memory_ptr(inputs, inputBufferSize);
+	}
 
-	inputMemory.copy_from_host(inputs);
-	targetMemory.copy_from_host(targets);
+	if (!cache->trainingTargetsBuffer)
+	{
+		cache->trainingTargetsBuffer = get_external_memory_ptr(targets, targetBufferSize);
+	}
 
 	uint32_t largestBatch = tcnn::previous_multiple(numElements, tcnn::batch_size_granularity * TRAINING_STEPS_PER_FRAME);
 
 	uint32_t splitBatchSize = largestBatch / TRAINING_STEPS_PER_FRAME;
-
+	CUDA_CHECK_THROW(cudaDeviceSynchronize());
 	for (int i = 0; i < TRAINING_STEPS_PER_FRAME; ++i)
 	{
-		tcnn::GPUMatrix<float> inputMatrix(inputMemory.data() + splitBatchSize * i, cache->inputDims, splitBatchSize);
-		tcnn::GPUMatrix<float> targetMatrix(targetMemory.data() + splitBatchSize * i, cache->outputDims, splitBatchSize);
+		tcnn::GPUMatrix<float> inputMatrix(cache->trainingDataBuffer + splitBatchSize * i, cache->inputDims, splitBatchSize);
+		tcnn::GPUMatrix<float> targetMatrix(cache->trainingTargetsBuffer + splitBatchSize * i, cache->outputDims, splitBatchSize);
 
 		tcnn::SyncedMultiStream syncedStream{ cache->trainingStream, 2 };
 		auto ctx = cache->model.trainer->training_step(syncedStream.get(1), inputMatrix, targetMatrix);
 	}
+	CUDA_CHECK_THROW(cudaDeviceSynchronize());
 }
 
-void vktcnn::inference(uint32_t numElements, const float* input, float* output, CacheType cacheType)
+void vktcnn::inference(uint32_t numElements, const HANDLE input, HANDLE output, CacheType cacheType, size_t inputBufferSize,
+	size_t resBufferSize)
 {
 	RadianceCache* cache = nullptr;
 	switch (cacheType)
@@ -119,21 +155,26 @@ void vktcnn::inference(uint32_t numElements, const float* input, float* output, 
 		cache = &classicRC;
 		break;
 	default:
-		break;
+		return;
 	}
 
-	tcnn::GPUMemory<float> inputMemory(numElements * cache->inputDims);
-	inputMemory.copy_from_host(input);
-	tcnn::GPUMemory<float> outputMemory(numElements * cache->outputDims);
+	if (!cache->queryBuffer)
+	{
+		cache->queryBuffer = get_external_memory_ptr(input, inputBufferSize);
+	}
 
+	if (!cache->resBuffer)
+	{
+		cache->resBuffer = get_external_memory_ptr(output, resBufferSize);
+	}
 
-	tcnn::GPUMatrix<float> inputs(inputMemory.data(), cache->inputDims, numElements);
-	tcnn::GPUMatrix<float> outputs(outputMemory.data(), cache->outputDims, numElements);
+	tcnn::GPUMatrix<float> inputs(cache->queryBuffer, cache->inputDims, numElements);
+	tcnn::GPUMatrix<float> outputs(cache->resBuffer, cache->outputDims, numElements);
 
 	tcnn::SyncedMultiStream syncedStream{ cache->inferenceStream, 2 };
+	CUDA_CHECK_THROW(cudaDeviceSynchronize());
 	cache->model.network->inference(syncedStream.get(1), inputs, outputs);
-	cudaDeviceSynchronize();
-	outputMemory.copy_to_host(output);
+	CUDA_CHECK_THROW(cudaDeviceSynchronize());
 }
 
 void vktcnn::terminate()

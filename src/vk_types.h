@@ -19,6 +19,7 @@ struct AllocatedBuffer
 	VmaAllocationInfo _allocationInfo = {};
 
 	VkMemoryPropertyFlags _memPropFlags;
+	HANDLE _handle = nullptr;
 };
 
 enum class ImageType

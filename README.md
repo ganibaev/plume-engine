@@ -9,9 +9,9 @@
 ***Pic 4:** Rendered in hybrid mode.*
 
 
-This is the repository for Plume, my toy rendering engine written in Vulkan and C++.
+This is an experimental branch for researching Neural Radiance Caching (Müller et al., 2021) and Dedicated Temporal Adaptation — my technique aimed to improve NRC (both available in path tracing mode through a Dear ImGui window). Please note that both of these techniques (and thus this branch) require an NVIDIA GPU with real-time ray tracing support.
 
-It has two modes of rendering: path tracing and hybrid (rasterization + ray traced shadows).
+The engine has two modes of rendering: path tracing and hybrid (rasterization + ray traced shadows).
 
 Both modes use normal mapping, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing (bindless texturing), path tracing mode uses camera jittering, motion vectors, temporal sample accumulation, Russian roulette path termination, shader execution reordering and a Morrone denoiser (also known as *glslSmartDenoise*), while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR and FXAA.
 
@@ -31,7 +31,7 @@ You can press F2 to enable a Dear ImGui window with various configuration option
 
 ## Running the code
 
-Note that Plume requires a GPU with real-time raytracing support.
+Note that Plume requires a GPU with real-time ray tracing support.
 
 To run the code and play around with it on your own on Windows, you can do the following:
 ```bash
@@ -48,4 +48,4 @@ By default, Vulkan validation layers are enabled in Debug mode and disabled in R
 
 ## Acknowledgements
 
-This project is based on the Vulkan Guide by Victor Blanco (https://vkguide.dev/), Vulkan Tutorial by Alexander Overvoorde (https://vulkan-tutorial.com/), Vulkan samples by Sascha Willems (https://github.com/SaschaWillems/Vulkan), NVIDIA Vulkan Ray Tracing Tutorials (https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR), NVIDIA Vulkan Ray Tracing Samples (https://github.com/nvpro-samples/vk_raytrace/, https://github.com/nvpro-samples/vk_mini_samples), Vulkan Game Engine Tutorial by Brendan Galea (https://github.com/blurrypiano/littleVulkanEngine), glslSmartDeNoise by Michele Morrone (https://github.com/BrutPitt/glslSmartDeNoise) and Learn OpenGL by Joey de Vries (https://learnopengl.com/).
+This project is based on the Vulkan Guide by Victor Blanco (https://vkguide.dev/), Vulkan Tutorial by Alexander Overvoorde (https://vulkan-tutorial.com/), Vulkan samples by Sascha Willems (https://github.com/SaschaWillems/Vulkan), NVIDIA Vulkan Ray Tracing Tutorials (https://github.com/nvpro-samples/vk_raytracing_tutorial_KHR), NVIDIA Vulkan Ray Tracing Samples (https://github.com/nvpro-samples/vk_raytrace/, https://github.com/nvpro-samples/vk_mini_samples), Vulkan Game Engine Tutorial by Brendan Galea (https://github.com/blurrypiano/littleVulkanEngine), glslSmartDeNoise by Michele Morrone (https://github.com/BrutPitt/glslSmartDeNoise) and Learn OpenGL by Joey de Vries (https://learnopengl.com/), Neural Radiance Caching by Thomas Müller et al. (Müller, T., Rousselle, F., Novák, J. and Keller, A., 2021. Real-time neural radiance caching for path tracing. arXiv preprint arXiv:2106.12372).

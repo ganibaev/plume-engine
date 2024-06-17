@@ -78,27 +78,27 @@ layout (set = eGeneralRTX, binding = 12, scalar) writeonly restrict buffer Specu
 	SpecularTrainingData queryData[];
 } specularQueryBuffer;
 
+layout (set = eGeneralRTX, binding = 13, scalar) readonly buffer RcResBuffer
+{
+	vec3 res[];
+} rcResBuffer;
+
+layout (set = eGeneralRTX, binding = 14, scalar) readonly buffer DiffRcResBuffer
+{
+	vec3 res[];
+} diffRcResBuffer;
+
+layout (set = eGeneralRTX, binding = 15, scalar) readonly buffer SpecRcResBuffer
+{
+	vec3 res[];
+} specRcResBuffer;
+
 
 layout (set = ePerFrame, binding = 0, rgba32f) uniform image2D outImage;
 layout (set = ePerFrame, binding = 1) uniform sampler2D motionVectors;
 layout (set = ePerFrame, binding = 2) uniform sampler2D frameTexture;
 layout (set = ePerFrame, binding = 3, rgba32f) uniform image2D positionsImage;
 layout (set = ePerFrame, binding = 4) uniform sampler2D prevPositions;
-
-layout (set = ePerFrame, binding = 5, scalar) readonly buffer RcResBuffer
-{
-	vec3 res[];
-} rcResBuffer;
-
-layout (set = ePerFrame, binding = 6, scalar) readonly buffer DiffRcResBuffer
-{
-	vec3 res[];
-} diffRcResBuffer;
-
-layout (set = ePerFrame, binding = 7, scalar) readonly buffer SpecRcResBuffer
-{
-	vec3 res[];
-} specRcResBuffer;
 
 
 layout (set = eGlobal, binding = 0) uniform CameraBuffer
@@ -153,6 +153,11 @@ struct RayData
   DiffuseTrainingData dvData;
   SpecularTrainingData svData;
 };
+
+vec3 saturate(in vec3 v)
+{
+	return clamp(v, 0.0, 1.0);
+}
 
 uint getTileIndex()
 {
@@ -514,13 +519,10 @@ void main()
 				{
 					queryRadianceCache(r.vData);
 				}
-				else if (vertexType == eDiffuse)
-				{
-					queryRadianceCache(r.dvData);
-				}
 				else
 				{
 					queryRadianceCache(r.svData);
+					queryRadianceCache(r.dvData);
 				}
 
 				queryRoughness = r.roughness;
@@ -582,7 +584,7 @@ void main()
 
 		++vertexId;
 		// Russian roulette path termination
-		if (prd.depth > 2 && prd.depth < 80)
+		if (rayConstants.NRC_MODE == eNone && prd.depth > 2 && prd.depth < 80)
 		{
 			q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
 			if (rng(seed) < q)
@@ -661,10 +663,10 @@ void main()
 			switch (rayConstants.NRC_MODE)
 			{
 				case eClassic:
-					resColor = getRCBufferColor(eCacheClassic);
+					resColor = saturate(getRCBufferColor(eCacheClassic));
 					break;
 				case eDedicatedTemporalAdaptation:
-					resColor = clamp(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness), 0.0, 1.0);
+					resColor = saturate(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness));
 					break;
 				default:
 					resColor = mix(oldColor, hitValue, a);
@@ -685,10 +687,10 @@ void main()
 		switch (rayConstants.NRC_MODE)
 		{
 			case eClassic:
-				resColor = getRCBufferColor(eCacheClassic);
+				resColor = saturate(getRCBufferColor(eCacheClassic));
 				break;
 			case eDedicatedTemporalAdaptation:
-				resColor = clamp(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness), 0.0, 1.0);
+				resColor = saturate(mix(getRCBufferColor(eSpecular), getRCBufferColor(eDiffuse), queryRoughness));
 				break;
 			default:
 				resColor = hitValue;

@@ -84,7 +84,7 @@ struct RayPushConstants
 	int32_t frame;
 
 	int32_t USE_TEMPORAL_ACCUMULATION = true;
-	int32_t USE_MOTION_VECTORS = true;
+	int32_t USE_MOTION_VECTORS = false;
 	int32_t USE_SHADER_EXECUTION_REORDERING = true;
 	int32_t MAX_BOUNCES = 12;
 	uint32_t NRC_TILE_WIDTH = NRC_TRAINING_TILE_WIDTH;
@@ -170,15 +170,6 @@ struct FrameData
 	vk::CommandBuffer _mainCommandBuffer;
 
 	AllocatedBuffer _objectBuffer;
-
-	AllocatedBuffer _nrcResBufferClassic;
-	AllocatedBuffer _nrcResStagingBufferClassic;
-
-	AllocatedBuffer _nrcResBufferDiffuse;
-	AllocatedBuffer _nrcResStagingBufferDiffuse;
-
-	AllocatedBuffer _nrcResBufferSpecular;
-	AllocatedBuffer _nrcResStagingBufferSpecular;
 };
 
 struct ConfigurationVariables
@@ -232,6 +223,10 @@ public:
 	vk::PhysicalDevice _chosenGPU; // default GPU
 	vk::Device _device; // commands will be executed on this 
 	vk::SurfaceKHR _surface; // window surface
+
+	SECURITY_ATTRIBUTES _secAtttributes;
+	vk::ExportMemoryWin32HandleInfoKHR _winHandleInfo;
+	vk::ExportMemoryAllocateInfo _memExportInfo;
 
 	DescriptorManager _descMng;
 
@@ -349,12 +344,18 @@ public:
 	AllocatedBuffer _trainingTargetsBufferSpecular;
 	AllocatedBuffer _sharedBufferSpecular;
 	AllocatedBuffer _queryBufferSpecular;
-	
+
+	AllocatedBuffer _nrcResBufferClassic;
+
+	AllocatedBuffer _nrcResBufferDiffuse;
+
+	AllocatedBuffer _nrcResBufferSpecular;
+
 	size_t _trainingTargetsSize = 0;
 
 	size_t _trainingDataSizeClassic = 0;
 	size_t _querySizeClassic = 0;
-	
+
 	size_t _trainingDataSizeDiffuse = 0;
 	size_t _querySizeDiffuse = 0;
 
@@ -362,10 +363,6 @@ public:
 	size_t _querySizeSpecular = 0;
 
 	size_t _rcResSize = 0;
-
-	std::vector<float> _queryResult;
-	std::vector<float> _queryResultDiffuse;
-	std::vector<float> _queryResultSpecular;
 
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> _rtShaderGroups;
 
@@ -378,8 +375,11 @@ public:
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
+	VmaPool create_vma_pool(vk::BufferUsageFlags bufferUsage, uint32_t maxBlockCount, void* allocPNext = nullptr,
+		uint64_t blockSize = 0);
 	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
-		VmaAllocationCreateFlags flags = 0, vk::MemoryPropertyFlags reqFlags = {});
+		VmaAllocationCreateFlags flags = 0, vk::MemoryPropertyFlags reqFlags = {}, VmaPool* pPool = nullptr,
+		bool getExportHandle = false);
 	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);
 
 	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
@@ -421,6 +421,8 @@ private:
 	void init_vulkan();
 	void init_swapchain();
 	void init_commands();
+
+	void init_win_handles();
 
 	void init_radiance_caches();
 

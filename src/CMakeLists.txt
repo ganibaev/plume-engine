@@ -34,6 +34,10 @@ add_subdirectory(tcnn_wrapper)
 
 target_compile_definitions(plume PUBLIC -DTCNN_MIN_GPU_ARCH=0)
 
+if(WIN32)
+    target_compile_definitions(plume PUBLIC NOMINMAX VK_USE_PLATFORM_WIN32_KHR)
+endif()
+
 set_property(TARGET tcnn_wrapper PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 
 target_link_libraries(plume vkbootstrap vma glm tinyobjloader imgui stb_image assimp tcnn_wrapper)
