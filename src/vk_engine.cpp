@@ -20,9 +20,6 @@
 	constexpr static bool ENABLE_VALIDATION_LAYERS = false;
 #endif // _DEBUG
 
-
-constexpr static float DRAW_DISTANCE = 6000.0f;
-
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
@@ -95,14 +92,6 @@ void VulkanEngine::init()
 	_isInitialized = true;
 }
 
-void VulkanEngine::fill_supported_extensions()
-{
-	std::vector<vk::ExtensionProperties> extensionProperties = vk::enumerateInstanceExtensionProperties();
-
-	for (auto& extension : extensionProperties) {
-		_supportedExtensions.insert(extension.extensionName);
-	}
-}
 
 void VulkanEngine::init_vulkan()
 {
@@ -133,6 +122,9 @@ void VulkanEngine::init_vulkan()
 
 	vk::PhysicalDeviceFeatures miscFeatures;
 	miscFeatures.shaderInt64 = VK_TRUE;
+
+	vk::PhysicalDeviceVulkan13Features v13Features;
+	v13Features.synchronization2 = VK_TRUE;
 
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_surface(_surface)
@@ -171,6 +163,8 @@ void VulkanEngine::init_vulkan()
 	addressFeatures.bufferDeviceAddress = VK_TRUE;
 	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures;
 	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+	vk::PhysicalDeviceSynchronization2Features syncFeatures;
+	syncFeatures.synchronization2 = VK_TRUE;
 	vk::PhysicalDeviceScalarBlockLayoutFeatures scalarBlockFeatures;
 	scalarBlockFeatures.scalarBlockLayout = VK_TRUE;
 	vk::PhysicalDeviceShaderClockFeaturesKHR clockFeatures;
@@ -179,7 +173,8 @@ void VulkanEngine::init_vulkan()
 	
 	vkb::Device vkbDevice = deviceBuilder.add_pNext(&descIndexingFeatures).add_pNext(&shaderDrawParametersFeatures)
 		.add_pNext(&accelFeatures).add_pNext(&rayQueryFeatures).add_pNext(&rtPipelineFeatures).add_pNext(&addressFeatures)
-		.add_pNext(&dynamicRenderingFeatures).add_pNext(&scalarBlockFeatures).add_pNext(&clockFeatures).build().value();
+		.add_pNext(&dynamicRenderingFeatures).add_pNext(&syncFeatures).add_pNext(&scalarBlockFeatures).add_pNext(&clockFeatures)
+		.build().value();
 
 	// get vk::Device handle for use in the rest of the application
 	_chosenGPU = physicalDevice.physical_device;
@@ -210,7 +205,7 @@ void VulkanEngine::init_swapchain()
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		.use_default_format_selection()
 		.set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) // set vsync mode
+		.set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR) // set vsync mode
 		.set_desired_extent(_windowExtent.width, _windowExtent.height)
 		.build()
 		.value();
@@ -394,6 +389,38 @@ void VulkanEngine::switch_frame_image_layout(vk::Image image, vk::CommandBuffer 
 
 	cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eRayTracingShaderKHR,
 		{}, {}, {}, transferToWritable);
+}
+
+void VulkanEngine::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
+{
+	vk::MemoryBarrier2 barrier;
+	barrier.srcAccessMask = srcMask;
+	barrier.dstAccessMask = dstMask;
+	barrier.srcStageMask = srcStage;
+	barrier.dstStageMask = dstStage;
+
+	vk::DependencyInfo depInfo;
+	depInfo.setMemoryBarriers(barrier);
+
+	cmd.pipelineBarrier2(depInfo);
+}
+
+void VulkanEngine::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
+{
+	vk::BufferMemoryBarrier2 barrier;
+	barrier.srcAccessMask = srcMask;
+	barrier.dstAccessMask = dstMask;
+	barrier.srcStageMask = srcStage;
+	barrier.dstStageMask = dstStage;
+	barrier.buffer = buffer;
+	barrier.size = VK_WHOLE_SIZE;
+
+	vk::DependencyInfo depInfo;
+	depInfo.setBufferMemoryBarriers(barrier);
+
+	cmd.pipelineBarrier2(depInfo);
 }
 
 FrameData& VulkanEngine::get_current_frame()
@@ -673,7 +700,7 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptors()
 {
-	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData));
+	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(CameraData) + sizeof(SceneData));
 
 	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -681,7 +708,7 @@ void VulkanEngine::init_descriptors()
 	camSceneBufferInfo.buffer = _camSceneBuffer._buffer;
 	camSceneBufferInfo.bufferType = vk::DescriptorType::eUniformBufferDynamic;
 	camSceneBufferInfo.offset = 0;
-	camSceneBufferInfo.range = sizeof(GPUCameraData) + sizeof(GPUSceneData);
+	camSceneBufferInfo.range = sizeof(CameraData) + sizeof(SceneData);
 
 	_descMng.register_buffer(RegisteredDescriptorSet::eGlobal, vk::ShaderStageFlagBits::eVertex |
 		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR,
@@ -709,7 +736,7 @@ void VulkanEngine::init_descriptors()
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		constexpr int MAX_OBJECTS = 10000;
-		_frames[i]._objectBuffer = create_buffer(sizeof(GPUObjectData) * MAX_OBJECTS,
+		_frames[i]._objectBuffer = create_buffer(sizeof(ObjectData) * MAX_OBJECTS,
 			vk::BufferUsageFlagBits::eStorageBuffer, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 		_mainDeletionQueue.push_function([=]() {
@@ -720,7 +747,7 @@ void VulkanEngine::init_descriptors()
 		objectBufferInfos[i].buffer = _frames[i]._objectBuffer._buffer;
 		objectBufferInfos[i].bufferType = vk::DescriptorType::eStorageBuffer;
 		objectBufferInfos[i].offset = 0;
-		objectBufferInfos[i].range = sizeof(GPUObjectData) * MAX_OBJECTS;
+		objectBufferInfos[i].range = sizeof(ObjectData) * MAX_OBJECTS;
 
 		postprocessInfos[i] = gBufferImageInfo;
 		postprocessInfos[i].imageView = _intermediateImageView;
@@ -833,7 +860,8 @@ void VulkanEngine::init_pipelines()
 
 	// build mesh pipeline 
 
-	VertexInputDescription vertexDescription = Vertex::get_vertex_description();
+	VertexInputDescription vertexDescription;
+	vertexDescription.construct_from_vertex();
 
 	// use the vertex info with the pipeline builder
 	pipelineBuilder._vertexInputInfo.setVertexAttributeDescriptions(vertexDescription.attributes);
@@ -968,8 +996,6 @@ void VulkanEngine::init_pipelines()
 	{
 		std::cout << "Skybox fragment shader loaded successfully" << std::endl;
 	}
-
-	vertexDescription = Vertex::get_vertex_description();
 
 	// use the vertex info with the pipeline builder
 	pipelineBuilder._vertexInputInfo.setVertexAttributeDescriptions(vertexDescription.attributes);
@@ -1821,6 +1847,27 @@ void VulkanEngine::update_frame()
 	++_rayConstants.frame;
 }
 
+void VulkanEngine::update_buffer_memory(const float* sourceData, size_t bufferSize,
+	AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer/* = nullptr*/)
+{
+	if (targetBuffer._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	{
+		memcpy(targetBuffer._allocationInfo.pMappedData, sourceData, bufferSize);
+	}
+	else
+	{
+		memcpy(stagingBuffer->_allocationInfo.pMappedData, sourceData, bufferSize);
+		vmaFlushAllocation(_allocator, stagingBuffer->_allocation, 0, VK_WHOLE_SIZE);
+		buffer_memory_barrier(*cmd, stagingBuffer->_buffer, vk::AccessFlagBits2::eHostWrite, vk::AccessFlagBits2::eTransferRead,
+			vk::PipelineStageFlagBits2::eHost, vk::PipelineStageFlagBits2::eCopy);
+		vk::BufferCopy bufCopy;
+		bufCopy.srcOffset = 0;
+		bufCopy.dstOffset = 0;
+		bufCopy.size = bufferSize;
+		cmd->copyBuffer(stagingBuffer->_buffer, targetBuffer._buffer, bufCopy);
+	}
+}
+
 void VulkanEngine::init_scene()
 {
 	RenderObject suzanne = {};
@@ -1910,7 +1957,7 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 }
 
 void VulkanEngine::cleanup()
-{	
+{
 	if (_isInitialized) {
 		--_frameNumber;
 		VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
@@ -2211,7 +2258,8 @@ vk::DeviceSize VulkanEngine::align_up(vk::DeviceSize originalSize, vk::DeviceSiz
 	return alignedSize;
 }
 
-AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage)
+AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
+	VmaAllocationCreateFlags flags/* = 0 */, vk::MemoryPropertyFlags reqFlags/* = {}*/)
 {
 	vk::BufferCreateInfo bufferInfo = {};
 	bufferInfo.size = allocSize;
@@ -2219,12 +2267,15 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFla
 
 	VmaAllocationCreateInfo vmaAllocInfo = {};
 	vmaAllocInfo.usage = memUsage;
+	vmaAllocInfo.flags = flags;
+	vmaAllocInfo.requiredFlags = static_cast<VkMemoryPropertyFlags>(reqFlags);
 
 	AllocatedBuffer newBuffer;
 
 	VkBuffer cBuffer;
-	VK_CHECK( vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(bufferInfo)), &vmaAllocInfo,
-		&cBuffer, &newBuffer._allocation, nullptr) );
+	auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
+	VK_CHECK( vmaCreateBuffer(_allocator, &cBufferInfo, &vmaAllocInfo,
+		&cBuffer, &newBuffer._allocation, &newBuffer._allocationInfo) );
 
 	newBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
 	return newBuffer;
@@ -2344,7 +2395,7 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
-	GPUCameraData camData = {};
+	CameraData camData = {};
 	camData.view = view;
 	camData.invView = glm::inverse(view);
 	camData.proj = projection;
@@ -2367,10 +2418,10 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
-	data += pad_uniform_buffer_size(sizeof(GPUCameraData) + sizeof(GPUSceneData)) * frameIndex;
-	memcpy(data, &camData, sizeof(GPUCameraData));
-	data += sizeof(GPUCameraData);
-	memcpy(data, &_sceneParameters, sizeof(GPUSceneData));
+	data += pad_uniform_buffer_size(sizeof(CameraData) + sizeof(SceneData)) * frameIndex;
+	memcpy(data, &camData, sizeof(CameraData));
+	data += sizeof(CameraData);
+	memcpy(data, &_sceneParameters, sizeof(SceneData));
 
 	vmaUnmapMemory(_allocator, _camSceneBuffer._allocation);
 
@@ -2379,12 +2430,12 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 
 	vmaMapMemory(_allocator, get_current_frame()._objectBuffer._allocation, &objectData);
 
-	GPUObjectData* objectSSBO = reinterpret_cast<GPUObjectData*>(objectData);
+	ObjectData* objectSSBO = reinterpret_cast<ObjectData*>(objectData);
 
 	for (int i = 0; i < count; ++i)
 	{
 		RenderObject& object = first[i];
-		objectSSBO[i].modelMatrix = object.transformMatrix;
+		objectSSBO[i].model = object.transformMatrix;
 		if (object.mesh)
 		{
 			uint64_t indexAddress = get_buffer_device_address(object.mesh->_indexBuffer._buffer);
@@ -2427,8 +2478,8 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			lastMaterialSet = object.materialSet;
 
 			// scene & camera descriptor
-			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-				sizeof(GPUSceneData)) * frameIndex);
+			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
+				sizeof(SceneData)) * frameIndex);
 
 			DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
@@ -2462,8 +2513,8 @@ void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd)
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, lightingMatSet->pipeline);
 
 	// scene & camera descriptor set
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-		sizeof(GPUSceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
+		sizeof(SceneData)) * frameIndex);
 
 	DescriptorSetFlags lightingDescFlags = lightingMatSet->usedDescriptorSets;
 
@@ -2482,8 +2533,8 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipeline
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipeline);
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-		sizeof(GPUSceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
+		sizeof(SceneData)) * frameIndex);
 
 	DescriptorSetFlags quadDescFlags = screenQuadMaterial->usedDescriptorSets;
 
@@ -2535,8 +2586,8 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, object.materialSet->pipeline);
 
 	// scene & camera descriptor
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-		sizeof(GPUSceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
+		sizeof(SceneData)) * frameIndex);
 
 	DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
@@ -2567,7 +2618,7 @@ void VulkanEngine::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 {
 	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::rendering_attachment_info(targetImageView,
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, {});
-	
+
 	vk::RenderingInfo uiRenderInfo;
 	uiRenderInfo.renderArea.extent = _windowExtent;
 	uiRenderInfo.layerCount = 1;
@@ -2598,8 +2649,8 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 
 	cmd.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipeline);
 
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(GPUCameraData) +
-		sizeof(GPUSceneData)) * swapchainImageIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
+		sizeof(SceneData)) * swapchainImageIndex);
 
 	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipelineLayout,
 		0, rtSets, uniformOffset);
@@ -2769,6 +2820,7 @@ void VulkanEngine::run()
 			ImGui_ImplSDL3_NewFrame();
 			ImGui::NewFrame();
 
+			ImGui::SetNextWindowSize(ImVec2(300, 300));
 			ImGui::Begin("Options");
 			if (_renderMode == RenderMode::ePathTracing)
 			{

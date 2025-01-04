@@ -3,17 +3,15 @@
 #include "tiny_obj_loader.h"
 #include <iostream>
 
-VertexInputDescription Vertex::get_vertex_description()
+void VertexInputDescription::construct_from_vertex()
 {
-	VertexInputDescription description;
-
 	// 1 vertex buffer binding, per-vertex rate
 	vk::VertexInputBindingDescription mainBinding = {};
 	mainBinding.binding = 0;
 	mainBinding.stride = sizeof(Vertex);
 	mainBinding.inputRate = vk::VertexInputRate::eVertex;
-	
-	description.bindings.push_back(mainBinding);
+
+	this->bindings.push_back(mainBinding);
 
 	// store position at location 0
 	vk::VertexInputAttributeDescription positionAttribute = {};
@@ -21,7 +19,7 @@ VertexInputDescription Vertex::get_vertex_description()
 	positionAttribute.location = 0;
 	positionAttribute.format = vk::Format::eR32G32B32Sfloat;
 	positionAttribute.offset = offsetof(Vertex, position);
-	
+
 	// normals at location 1
 	vk::VertexInputAttributeDescription normalAttribute = {};
 	normalAttribute.binding = 0;
@@ -49,13 +47,12 @@ VertexInputDescription Vertex::get_vertex_description()
 	tangentAttribute.location = 4;
 	tangentAttribute.format = vk::Format::eR32G32B32Sfloat;
 	tangentAttribute.offset = offsetof(Vertex, tangent);
-	
-	description.attributes.push_back(positionAttribute);
-	description.attributes.push_back(normalAttribute);
-	description.attributes.push_back(colorAttribute);
-	description.attributes.push_back(uvAttribute);
-	description.attributes.push_back(tangentAttribute);
-	return description;
+
+	this->attributes.push_back(positionAttribute);
+	this->attributes.push_back(normalAttribute);
+	this->attributes.push_back(colorAttribute);
+	this->attributes.push_back(uvAttribute);
+	this->attributes.push_back(tangentAttribute);
 }
 
 bool Model::load_assimp(std::string filePath)
@@ -125,7 +122,7 @@ void Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 	if (mesh->mMaterialIndex >= 0)
 	{
 		material = scene.mMaterials[mesh->mMaterialIndex];
-		newMesh._matIndex = _parentScene->_matOffset + mesh->mMaterialIndex;
+		newMesh._matIndex = static_cast<int32_t>(_parentScene->_matOffset + mesh->mMaterialIndex);
 		material->Get(AI_MATKEY_COLOR_EMISSIVE, newMesh._emittance);
 	}
 

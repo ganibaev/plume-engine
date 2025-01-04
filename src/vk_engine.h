@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "vk_types.h"
+#include "vk_cfg.h"
 #include <vector>
 #include <tuple>
 #include <string>
@@ -20,6 +21,8 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
+#include "../shaders/host_device_common.h"
+
 #define VK_CHECK(x)																\
 	do																			\
 	{																			\
@@ -31,20 +34,6 @@
 		}																		\
 	} while (0)
 
-constexpr int NUM_TEXTURE_TYPES = 4;
-
-constexpr int NUM_GBUFFER_ATTACHMENTS = 4;
-
-constexpr uint32_t DIFFUSE_TEX_SLOT = 0;
-constexpr uint32_t METALLIC_TEX_SLOT = 1;
-constexpr uint32_t ROUGHNESS_TEX_SLOT = 2;
-constexpr uint32_t NORMAL_MAP_SLOT = 3;
-constexpr uint32_t TLAS_SLOT = 4;
-
-constexpr uint32_t GBUFFER_POSITION_SLOT = 0;
-constexpr uint32_t GBUFFER_NORMAL_SLOT = 1;
-constexpr uint32_t GBUFFER_ALBEDO_SLOT = 2;
-constexpr uint32_t GBUFFER_METALLIC_ROUGHNESS_SLOT = 3;
 
 class PipelineBuilder {
 public:
@@ -92,71 +81,15 @@ struct RenderObject
 	}
 };
 
-struct RayPushConstants
-{
-	int32_t frame;
-
-	int32_t USE_TEMPORAL_ACCUMULATION = true;
-	int32_t USE_MOTION_VECTORS = true;
-	int32_t USE_SHADER_EXECUTION_REORDERING = true;
-	int32_t MAX_BOUNCES = 12;
-
-	int32_t padding[3];
-};
-
 enum class RenderMode
 {
 	eHybrid = 0,
 	ePathTracing = 1
 };
 
-
 struct MeshPushConstants
 {
 	glm::mat4 render_matrix;
-};
-
-constexpr uint32_t NUM_LIGHTS = 3;
-
-struct GPUCameraData
-{
-	glm::mat4 view;
-	glm::mat4 invView;
-	glm::mat4 proj;
-	glm::mat4 viewproj;
-	glm::mat4 invProj;
-	glm::mat4 invViewProj;
-	glm::mat4 prevViewProj = glm::identity<glm::mat4>();
-};
-
-struct DirectionalLight
-{
-	glm::vec4 direction; // w for sun power
-	glm::vec4 color;
-};
-
-struct PointLight
-{
-	glm::vec4 position;
-	glm::vec4 color; // w for light intensity
-};
-
-struct GPUSceneData
-{
-	glm::vec4 fogColor; // w for exponent
-	glm::vec4 fogDistances; // x -- min, y -- max
-	glm::vec4 ambientLight; // a for ambient light intensity
-	DirectionalLight dirLight;
-	std::array<PointLight, NUM_LIGHTS> pointLights;
-};
-
-struct GPUObjectData
-{
-	glm::mat4 modelMatrix;
-	int32_t matIndex = 0;
-	uint64_t vertexBufferAddress = 0;
-	uint64_t indexBufferAddress = 0;
-	glm::vec3 emittance{ 0.0f };
 };
 
 struct Texture
@@ -251,15 +184,13 @@ public:
 	bool _defocusMode = false;
 	bool _showImgui = false;
 
-	GPUSceneData _sceneParameters;
+	SceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;
 
 	ConfigurationVariables _cfg;
 
 	size_t pad_uniform_buffer_size(size_t originalSize);
 	vk::DeviceSize align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment);
-
-	void fill_supported_extensions();
 
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
@@ -285,6 +216,11 @@ public:
 	void switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering);
 	void switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering);
 	void switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd);
+
+	void memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+		vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage);
+	void buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+		vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage);
 
 	vk::ImageView _depthImageView;
 	vk::Image _depthImage;
@@ -331,7 +267,8 @@ public:
 	// load shader module from .spirv
 	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
 
-	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage);
+	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
+		VmaAllocationCreateFlags flags = 0, vk::MemoryPropertyFlags reqFlags = {});
 	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);
 
 	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
@@ -415,8 +352,12 @@ private:
 
 	void update_frame();
 
+	void update_buffer_memory(const float* sourceData, size_t bufferSize,
+		AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer = nullptr);
+
 	template<typename T>
-	void upload_buffer(const std::vector<T>& buffer, AllocatedBuffer& targetBuffer, vk::BufferUsageFlags bufferUsage)
+	void upload_buffer(const std::vector<T>& buffer, AllocatedBuffer& targetBuffer, vk::BufferUsageFlags bufferUsage,
+		vk::CommandBuffer* extCmd = nullptr)
 	{
 		const size_t bufferSize = buffer.size() * sizeof(T);
 
@@ -455,20 +396,35 @@ private:
 			vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
 			VkBuffer cBuffer;
+			auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
 
-			VK_CHECK(vmaCreateBuffer(_allocator, &(static_cast<VkBufferCreateInfo>(bufferInfo)), &vmaAllocInfo,
+			VK_CHECK(vmaCreateBuffer(_allocator, &cBufferInfo, &vmaAllocInfo,
 				&cBuffer, &targetBuffer._allocation, nullptr));
 
 			targetBuffer._buffer = static_cast<vk::Buffer>(cBuffer);
 		}
 
-		immediate_submit([=](vk::CommandBuffer cmd) {
+		if (!extCmd)
+		{
+			immediate_submit([=](vk::CommandBuffer cmd) {
+				vk::BufferCopy copy;
+				copy.dstOffset = 0;
+				copy.srcOffset = 0;
+				copy.size = bufferSize;
+				cmd.copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
+				}, _uploadContext._commandBuffer);
+		}
+		else
+		{
 			vk::BufferCopy copy;
 			copy.dstOffset = 0;
 			copy.srcOffset = 0;
 			copy.size = bufferSize;
-			cmd.copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
-		}, _uploadContext._commandBuffer);
+
+			extCmd->copyBuffer(stagingBuffer._buffer, targetBuffer._buffer, copy);
+			buffer_memory_barrier(*extCmd, targetBuffer._buffer, vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderRead,
+				vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eFragmentShader);
+		}
 
 		vmaDestroyBuffer(_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 	}

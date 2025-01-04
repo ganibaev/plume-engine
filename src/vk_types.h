@@ -16,6 +16,9 @@ struct AllocatedBuffer
 {
 	vk::Buffer _buffer;
 	VmaAllocation _allocation = {};
+
+	VmaAllocationInfo _allocationInfo = {};
+	VkMemoryPropertyFlags _memPropFlags;
 };
 
 enum class ImageType

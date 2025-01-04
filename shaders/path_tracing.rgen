@@ -3,7 +3,6 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_ARB_shader_clock : enable
 #extension GL_NV_shader_invocation_reorder : enable
@@ -92,7 +91,7 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 
 	int matID = hp.matID;
 
-	if (matID < 0)
+	if (prd.depth >= 100)
 	{
 		return r;
 	}
@@ -163,7 +162,7 @@ void main()
 	vec4 origin = camSceneData.camData.invView[3];
 	vec4 target = camSceneData.camData.invProj * vec4(d.x, d.y, 1, 1);
 	vec4 direction = camSceneData.camData.invView * vec4(normalize(target.xyz), 0);
-	
+
 	uint rayFlags = gl_RayFlagsNoneEXT;
 	float tMin = 0.001;
 	float tMax = 10000.0;
@@ -180,14 +179,22 @@ void main()
 
 	vec3 curWeight = vec3(1.0);
 	vec3 hitValue = vec3(0.0);
-	
+
 	vec3 primaryPos = vec3(0.0);
 
 	HitProperties hp;
 	hp.matID = -1;
 
+	bool primaryMiss = true;
+	float q = -1.0;
+
 	for (; prd.depth < rayConstants.MAX_BOUNCES + 1; ++prd.depth)
 	{
+		if (prd.depth > 0)
+		{
+			primaryMiss = false;
+		}
+
 		if (rayConstants.USE_SHADER_EXECUTION_REORDERING)
 		{
 			hitObjectNV hObj;
@@ -266,9 +273,9 @@ void main()
 		}
 
 		// Russian roulette path termination
-		if (prd.depth > 2)
+		if (prd.depth > 2 && prd.depth < 80)
 		{
-			const float q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
+			q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
 			if (rng(seed) < q)
 			{
 				break;
@@ -278,6 +285,8 @@ void main()
 	}
 
 	imageStore(positionsImage, ivec2(gl_LaunchIDEXT.xy), vec4(primaryPos, 1.0));
+
+	vec3 resValue = hitValue;
 
 	if (rayConstants.frame > 0 && rayConstants.USE_TEMPORAL_ACCUMULATION)
 	{
@@ -308,7 +317,6 @@ void main()
 			ivec2 intRenderPos = ivec2(round(nearestRenderPos.x), round(nearestRenderPos.y));
 			intRenderPos = clamp(intRenderPos, ivec2(0), ivec2(gl_LaunchSizeEXT.x - 1, gl_LaunchSizeEXT.y - 1));
 
-			float motionWeight = smoothstep(0, 1.0, uvDiffLength);
 			float sampleWeight = getSampleWeight(nearestRenderPos - intRenderPos, 1.0);
 
 			a = clamp(max(smoothstep(0, 1.0, uvDiffLength), sampleWeight) * 0.1, 0.0, 1.0);
@@ -338,10 +346,15 @@ void main()
 			oldColor = imageLoad(outImage, ivec2(gl_LaunchIDEXT.xy)).xyz;
 		}
 
-		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(mix(oldColor, hitValue, a), 1.0));
+		if (primaryMiss)
+		{
+			resValue = prd.hitValue;
+		}
+		else
+		{
+			resValue = mix(oldColor, hitValue, a);
+		}
 	}
-	else
-	{
-		imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.0));
-	}
+
+	imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(resValue, 1.0));
 }

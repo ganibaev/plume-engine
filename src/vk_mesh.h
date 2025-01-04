@@ -2,15 +2,14 @@
 
 #include "vk_types.h"
 #include <vector>
-#include <glm/vec4.hpp>
-#include <glm/vec3.hpp>
-#include <glm/vec2.hpp>
+#include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <../shaders/host_device_common.h>
 
 struct VertexInputDescription
 {
@@ -18,16 +17,8 @@ struct VertexInputDescription
 	std::vector<vk::VertexInputAttributeDescription> attributes;
 
 	vk::PipelineVertexInputStateCreateFlags flags;
-};
 
-struct Vertex
-{
-	glm::vec3 position;
-	glm::vec3 normal;
-	glm::vec3 color;
-	glm::vec2 uv;
-	glm::vec3 tangent;
-	static VertexInputDescription get_vertex_description();
+	void construct_from_vertex();
 };
 
 struct Mesh

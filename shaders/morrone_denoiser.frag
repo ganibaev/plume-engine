@@ -91,14 +91,22 @@ vec3 unchartedTonemap(vec3 color)
     return color * whiteScale;
 }
 
+
 void main()
 {
     float sigma = 1.0;
     float kSigma = 1.0;
     float threshold = 0.075;
+
+
     if (USE_DENOISER)
     {
         outColor = morroneDenoiser(frameTexture, inTexCoords, sigma, kSigma, threshold);
     }
+    else
+    {
+        outColor = vec4(texture(frameTexture, inTexCoords).rgb, 1.0);
+    }
+
 	outColor = vec4(unchartedTonemap(outColor.rgb), 1.0);
 }
