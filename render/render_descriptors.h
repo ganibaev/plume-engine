@@ -1,6 +1,8 @@
-#include "vk_types.h"
+#include "render_types.h"
 #include <vector>
 
+namespace Render
+{
 
 // DON'T FORGET:
 // When registering a new descriptor set, add a new RegisteredDescriptorSet to enum class
@@ -47,45 +49,45 @@ enum class RegisteredDescriptorSet
 };
 
 
-struct BufferInfo
-{
-	vk::Buffer buffer;
-	vk::DeviceSize offset;
-	vk::DeviceSize range;
-	vk::DescriptorType bufferType;
-};
-
-struct ImageInfo
-{
-	vk::ImageView imageView;
-	vk::ImageLayout layout;
-	vk::Sampler sampler;
-	vk::DescriptorType imageType;
-};
-
-
-struct DescriptorSetInfo
-{
-	std::array<vk::DescriptorSet, FRAME_OVERLAP> sets;
-	vk::DescriptorSetLayout setLayout;
-
-	std::vector<vk::DescriptorSetLayoutBinding> layoutBindings;
-
-	std::vector<vk::DescriptorSet*> writeToSetsAt;
-	std::vector<vk::WriteDescriptorSet> writes;
-	std::vector<vk::WriteDescriptorSetAccelerationStructureKHR> accelWrites;
-	std::vector<vk::AccelerationStructureKHR> accels;
-
-	std::vector<vk::DescriptorImageInfo> imageInfos;
-	std::vector<vk::DescriptorBufferInfo> bufferInfos;
-
-	bool isPerFrame = false;
-	bool hasBindless = false;
-};
-
 class DescriptorManager
 {
 public:
+	struct BufferInfo
+	{
+		vk::Buffer buffer;
+		vk::DeviceSize offset;
+		vk::DeviceSize range;
+		vk::DescriptorType bufferType;
+	};
+
+	struct ImageInfo
+	{
+		vk::ImageView imageView;
+		vk::ImageLayout layout;
+		vk::Sampler sampler;
+		vk::DescriptorType imageType;
+	};
+
+
+	struct DescriptorSetInfo
+	{
+		std::array<vk::DescriptorSet, FRAME_OVERLAP> sets;
+		vk::DescriptorSetLayout setLayout;
+
+		std::vector<vk::DescriptorSetLayoutBinding> layoutBindings;
+
+		std::vector<vk::DescriptorSet*> writeToSetsAt;
+		std::vector<vk::WriteDescriptorSet> writes;
+		std::vector<vk::WriteDescriptorSetAccelerationStructureKHR> accelWrites;
+		std::vector<vk::AccelerationStructureKHR> accels;
+
+		std::vector<vk::DescriptorImageInfo> imageInfos;
+		std::vector<vk::DescriptorBufferInfo> bufferInfos;
+
+		bool isPerFrame = false;
+		bool hasBindless = false;
+	};
+
 	void init(vk::Device* pDevice, DeletionQueue* pDeletionQueue);
 
 	void allocate_sets();
@@ -113,3 +115,5 @@ private:
 	DeletionQueue* _pDeletionQueue;
 	vk::DescriptorPool _pool;
 };
+
+} // namespace Render

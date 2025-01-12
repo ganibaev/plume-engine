@@ -1,9 +1,9 @@
-﻿#include "vk_engine.h"
+﻿#include "render_system.h"
 
-#include "vk_initializers.h"
+#include "render_initializers.h"
 
-#include "vk_textures.h"
-#include "vk_raytracing.h"
+#include "render_textures.h"
+#include "render_raytracing.h"
 
 // This will make initialization much less of a pain
 #include "VkBootstrap.h"
@@ -30,7 +30,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "imgui_impl_vulkan.h"
 
 
-void VulkanEngine::init()
+void RenderSystem::init()
 {
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
@@ -93,7 +93,7 @@ void VulkanEngine::init()
 }
 
 
-void VulkanEngine::init_vulkan()
+void RenderSystem::init_vulkan()
 {
 	vkb::InstanceBuilder builder;
 
@@ -198,7 +198,7 @@ void VulkanEngine::init_vulkan()
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(_device);
 }
 
-void VulkanEngine::init_swapchain()
+void RenderSystem::init_swapchain()
 {
 	vkb::SwapchainBuilder swapchainBuilder{ _chosenGPU, _device, _surface };
 
@@ -270,7 +270,7 @@ void VulkanEngine::init_swapchain()
 	_depthFormat = vk::Format::eD32Sfloat;
 }
 
-void VulkanEngine::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
+void RenderSystem::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 	vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
 	vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask)
 {
@@ -288,7 +288,7 @@ void VulkanEngine::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlag
 	cmd.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, transition);
 }
 
-void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering)
+void RenderSystem::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering)
 {
 	if (beforeRendering)
 	{
@@ -341,7 +341,7 @@ void VulkanEngine::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool 
 	}
 }
 
-void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
+void RenderSystem::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
 {
 	if (beforeRendering)
 	{
@@ -375,7 +375,7 @@ void VulkanEngine::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t
 	}
 }
 
-void VulkanEngine::switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd)
+void RenderSystem::switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd)
 {
 	vk::ImageMemoryBarrier transferToWritable;
 	transferToWritable.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -391,7 +391,7 @@ void VulkanEngine::switch_frame_image_layout(vk::Image image, vk::CommandBuffer 
 		{}, {}, {}, transferToWritable);
 }
 
-void VulkanEngine::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+void RenderSystem::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
 	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
 {
 	vk::MemoryBarrier2 barrier;
@@ -406,7 +406,7 @@ void VulkanEngine::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMas
 	cmd.pipelineBarrier2(depInfo);
 }
 
-void VulkanEngine::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
+void RenderSystem::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
 	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
 {
 	vk::BufferMemoryBarrier2 barrier;
@@ -423,12 +423,12 @@ void VulkanEngine::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffe
 	cmd.pipelineBarrier2(depInfo);
 }
 
-FrameData& VulkanEngine::get_current_frame()
+FrameData& RenderSystem::get_current_frame()
 {
 	return _frames[_frameNumber % FRAME_OVERLAP];
 }
 
-void VulkanEngine::init_commands()
+void RenderSystem::init_commands()
 {
 	vk::CommandPoolCreateInfo uploadCommandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily);
 
@@ -462,7 +462,7 @@ void VulkanEngine::init_commands()
 	}
 }
 
-void VulkanEngine::init_gbuffer_attachments()
+void RenderSystem::init_gbuffer_attachments()
 {
 	// define attachment formats
 	vk::Format positionFormat = vk::Format::eR32G32B32A32Sfloat;
@@ -544,7 +544,7 @@ void VulkanEngine::init_gbuffer_attachments()
 
 	vk::Sampler gBufferSampler = _device.createSampler(gBufferSamplerInfo);
 
-	std::vector<ImageInfo> ptPositionInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> ptPositionInfos(FRAME_OVERLAP);
 	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		ptPositionInfos[i].imageType = vk::DescriptorType::eStorageImage;
@@ -553,7 +553,7 @@ void VulkanEngine::init_gbuffer_attachments()
 		ptPositionInfos[i].sampler = gBufferSampler;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR,
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR,
 		ptPositionInfos, 3, 1, false, true);
 
 
@@ -566,7 +566,7 @@ void VulkanEngine::init_gbuffer_attachments()
 		prevPositionsImage._image, vk::ImageAspectFlagBits::eColor, 1);
 	auto prevPositionsImageView = _device.createImageView(prevPositionsViewCreateInfo);
 
-	std::vector<ImageInfo> prevPosInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> prevPosInfos(FRAME_OVERLAP);
 	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		prevPosInfos[i].imageType = vk::DescriptorType::eCombinedImageSampler;
@@ -575,7 +575,7 @@ void VulkanEngine::init_gbuffer_attachments()
 		prevPosInfos[i].sampler = gBufferSampler;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR,
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR,
 		prevPosInfos, 4, 1, false, true);
 
 
@@ -593,7 +593,7 @@ void VulkanEngine::init_gbuffer_attachments()
 	});
 }
 
-void VulkanEngine::create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
+void RenderSystem::create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
 	vk::Image* image, vk::ImageView* imageView)
 {
 	vk::ImageAspectFlags aspectMask;
@@ -654,19 +654,19 @@ void VulkanEngine::create_attachment(vk::Format format, vk::ImageUsageFlagBits u
 	});
 }
 
-void VulkanEngine::init_prepass_attachments()
+void RenderSystem::init_prepass_attachments()
 {
 	create_attachment(_motionVectorFormat, vk::ImageUsageFlagBits::eColorAttachment, _motionVectorAttachment,
 		&_motionVectorImage, &_motionVectorImageView);
 }
 
-void VulkanEngine::init_raytracing()
+void RenderSystem::init_raytracing()
 {
 	_gpuProperties.pNext = &_rtProperties;
 	_chosenGPU.getProperties2(&_gpuProperties);
 }
 
-void VulkanEngine::init_sync_structures()
+void RenderSystem::init_sync_structures()
 {
 	vk::FenceCreateInfo uploadFenceCreateInfo = vkinit::fence_create_info();
 
@@ -698,23 +698,23 @@ void VulkanEngine::init_sync_structures()
 	}
 }
 
-void VulkanEngine::init_descriptors()
+void RenderSystem::init_descriptors()
 {
 	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(CameraData) + sizeof(SceneData));
 
 	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-	BufferInfo camSceneBufferInfo;
+	Render::DescriptorManager::BufferInfo camSceneBufferInfo;
 	camSceneBufferInfo.buffer = _camSceneBuffer._buffer;
 	camSceneBufferInfo.bufferType = vk::DescriptorType::eUniformBufferDynamic;
 	camSceneBufferInfo.offset = 0;
 	camSceneBufferInfo.range = sizeof(CameraData) + sizeof(SceneData);
 
-	_descMng.register_buffer(RegisteredDescriptorSet::eGlobal, vk::ShaderStageFlagBits::eVertex |
+	_descMng.register_buffer(Render::RegisteredDescriptorSet::eGlobal, vk::ShaderStageFlagBits::eVertex |
 		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR,
 		{ camSceneBufferInfo }, 0);
 
-	std::vector<BufferInfo> objectBufferInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::BufferInfo> objectBufferInfos(FRAME_OVERLAP);
 
 	vk::SamplerCreateInfo gBufferSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
 		1.0, vk::SamplerAddressMode::eClampToEdge);
@@ -726,9 +726,9 @@ void VulkanEngine::init_descriptors()
 		_device.destroySampler(gBufferSampler);
 	});
 
-	std::vector<ImageInfo> postprocessInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> postprocessInfos(FRAME_OVERLAP);
 
-	ImageInfo gBufferImageInfo;
+	Render::DescriptorManager::ImageInfo gBufferImageInfo;
 	gBufferImageInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
 	gBufferImageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 	gBufferImageInfo.sampler = gBufferSampler;
@@ -753,10 +753,10 @@ void VulkanEngine::init_descriptors()
 		postprocessInfos[i].imageView = _intermediateImageView;
 	}
 
-	ImageInfo positionInfo;
-	ImageInfo normalInfo;
-	ImageInfo albedoInfo;
-	ImageInfo metallicRoughnessInfo;
+	Render::DescriptorManager::ImageInfo positionInfo;
+	Render::DescriptorManager::ImageInfo normalInfo;
+	Render::DescriptorManager::ImageInfo albedoInfo;
+	Render::DescriptorManager::ImageInfo metallicRoughnessInfo;
 
 	positionInfo = gBufferImageInfo;
 	positionInfo.imageView = _gBufferColorAttachments[GBUFFER_POSITION_SLOT].imageView;
@@ -770,32 +770,32 @@ void VulkanEngine::init_descriptors()
 	metallicRoughnessInfo = gBufferImageInfo;
 	metallicRoughnessInfo.imageView = _gBufferColorAttachments[GBUFFER_METALLIC_ROUGHNESS_SLOT].imageView;
 
-	_descMng.register_buffer(RegisteredDescriptorSet::eObjects, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+	_descMng.register_buffer(Render::RegisteredDescriptorSet::eObjects, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR, objectBufferInfos, 0, 1, true);
 
-	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { positionInfo },
+	_descMng.register_image(Render::RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { positionInfo },
 		GBUFFER_POSITION_SLOT);
-	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { normalInfo },
+	_descMng.register_image(Render::RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { normalInfo },
 		GBUFFER_NORMAL_SLOT);
-	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { albedoInfo },
+	_descMng.register_image(Render::RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { albedoInfo },
 		GBUFFER_ALBEDO_SLOT);
-	_descMng.register_image(RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { metallicRoughnessInfo },
+	_descMng.register_image(Render::RegisteredDescriptorSet::eGBuffer, vk::ShaderStageFlagBits::eFragment, { metallicRoughnessInfo },
 		GBUFFER_METALLIC_ROUGHNESS_SLOT);
 
-	_descMng.register_image(RegisteredDescriptorSet::ePostprocess, vk::ShaderStageFlagBits::eVertex |
+	_descMng.register_image(Render::RegisteredDescriptorSet::ePostprocess, vk::ShaderStageFlagBits::eVertex |
 		vk::ShaderStageFlagBits::eFragment, postprocessInfos, 0, 1, false, true);
 
 }
 
-void VulkanEngine::init_pipelines()
+void RenderSystem::init_pipelines()
 {
 	Model* scene = get_model("scene");
 
 	vk::PipelineLayoutCreateInfo texturedPipelineLayoutInfo;
 
-	DescriptorSetFlags texturedPipelineUsedDescs = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eObjects |
-		DescriptorSetFlagBits::eDiffuseTextures | DescriptorSetFlagBits::eMetallicTextures |
-		DescriptorSetFlagBits::eRoughnessTextures | DescriptorSetFlagBits::eNormalMapTextures | DescriptorSetFlagBits::eTLAS;
+	Render::DescriptorSetFlags texturedPipelineUsedDescs = Render::DescriptorSetFlagBits::eGlobal | Render::DescriptorSetFlagBits::eObjects |
+		Render::DescriptorSetFlagBits::eDiffuseTextures | Render::DescriptorSetFlagBits::eMetallicTextures |
+		Render::DescriptorSetFlagBits::eRoughnessTextures | Render::DescriptorSetFlagBits::eNormalMapTextures | Render::DescriptorSetFlagBits::eTLAS;
 
 	auto texSetLayouts = _descMng.get_layouts(texturedPipelineUsedDescs);
 
@@ -813,7 +813,7 @@ void VulkanEngine::init_pipelines()
 
 	skyboxPipelineLayoutInfo.setPushConstantRanges(skyboxPushConstants);
 	
-	DescriptorSetFlags skyboxPipelineUsedDescs = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eSkyboxTextures;
+	Render::DescriptorSetFlags skyboxPipelineUsedDescs = Render::DescriptorSetFlagBits::eGlobal | Render::DescriptorSetFlagBits::eSkyboxTextures;
 
 	auto skyboxSetLayouts = _descMng.get_layouts(skyboxPipelineUsedDescs);
 
@@ -890,7 +890,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule geometryPassVertexShader;
 
-	if (!load_shader_module("../../../shaders/geometry_pass.vert.spv", &geometryPassVertexShader))
+	if (!load_shader_module("../../../render/shader_binaries/geometry_pass.vert.spv", &geometryPassVertexShader))
 	{
 		std::cout << "Error building geometry pass vertex shader module" << std::endl;
 	}
@@ -901,7 +901,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule geometryPassFragmentShader;
 
-	if (!load_shader_module("../../../shaders/geometry_pass.frag.spv", &geometryPassFragmentShader))
+	if (!load_shader_module("../../../render/shader_binaries/geometry_pass.frag.spv", &geometryPassFragmentShader))
 	{
 		std::cout << "Error building geometry pass fragment shader module" << std::endl;
 	}
@@ -925,7 +925,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule lightingPassVertexShader;
 
-	if (!load_shader_module("../../../shaders/lighting_pass.vert.spv", &lightingPassVertexShader))
+	if (!load_shader_module("../../../render/shader_binaries/lighting_pass.vert.spv", &lightingPassVertexShader))
 	{
 		std::cout << "Error building lighting pass vertex shader module" << std::endl;
 	}
@@ -936,7 +936,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule lightingPassFragmentShader;
 
-	if (!load_shader_module("../../../shaders/lighting_pass.frag.spv", &lightingPassFragmentShader))
+	if (!load_shader_module("../../../render/shader_binaries/lighting_pass.frag.spv", &lightingPassFragmentShader))
 	{
 		std::cout << "Error building lighting pass fragment shader module" << std::endl;
 	}
@@ -947,8 +947,8 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo lightingPassPipelineLayoutInfo;
 
-	DescriptorSetFlags lightingPassDescFlags = DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eGBuffer |
-		DescriptorSetFlagBits::eTLAS;
+	Render::DescriptorSetFlags lightingPassDescFlags = Render::DescriptorSetFlagBits::eGlobal | Render::DescriptorSetFlagBits::eGBuffer |
+		Render::DescriptorSetFlagBits::eTLAS;
 
 	auto lightingPassSetLayouts = _descMng.get_layouts(lightingPassDescFlags);
 
@@ -977,7 +977,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule skyboxVertShader;
 
-	if (!load_shader_module("../../../shaders/skybox.vert.spv", &skyboxVertShader))
+	if (!load_shader_module("../../../render/shader_binaries/skybox.vert.spv", &skyboxVertShader))
 	{
 		std::cout << "Error building skybox vertex shader module" << std::endl;
 	}
@@ -988,7 +988,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule skyboxFragShader;
 
-	if (!load_shader_module("../../../shaders/skybox.frag.spv", &skyboxFragShader))
+	if (!load_shader_module("../../../render/shader_binaries/skybox.frag.spv", &skyboxFragShader))
 	{
 		std::cout << "Error building skybox fragment shader module" << std::endl;
 	}
@@ -1018,7 +1018,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule postPassVertexShader;
 
-	if (!load_shader_module("../../../shaders/postprocess.vert.spv", &postPassVertexShader))
+	if (!load_shader_module("../../../render/shader_binaries/postprocess.vert.spv", &postPassVertexShader))
 	{
 		std::cout << "Error building postprocess vertex shader module" << std::endl;
 	}
@@ -1029,7 +1029,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule fxaaFragmentShader;
 
-	if (!load_shader_module("../../../shaders/fxaa.frag.spv", &fxaaFragmentShader))
+	if (!load_shader_module("../../../render/shader_binaries/fxaa.frag.spv", &fxaaFragmentShader))
 	{
 		std::cout << "Error building FXAA fragment shader module" << std::endl;
 	}
@@ -1040,7 +1040,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule denoiserFragmentShader;
 
-	if (!load_shader_module("../../../shaders/morrone_denoiser.frag.spv", &denoiserFragmentShader))
+	if (!load_shader_module("../../../render/shader_binaries/morrone_denoiser.frag.spv", &denoiserFragmentShader))
 	{
 		std::cout << "Error building denoiser fragment shader module" << std::endl;
 	}
@@ -1051,7 +1051,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo postPassPipelineLayoutInfo;
 
-	DescriptorSetFlags postPassDescFlags = DescriptorSetFlagBits::ePostprocess;
+	Render::DescriptorSetFlags postPassDescFlags = Render::DescriptorSetFlagBits::ePostprocess;
 
 	auto postPassSetLayouts = _descMng.get_layouts(postPassDescFlags);
 
@@ -1098,7 +1098,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::ShaderModule motionVectorFragmentShader;
 
-	if (!load_shader_module("../../../shaders/motion_vectors.frag.spv", &motionVectorFragmentShader))
+	if (!load_shader_module("../../../render/shader_binaries/motion_vectors.frag.spv", &motionVectorFragmentShader))
 	{
 		std::cout << "Error building motion vector fragment shader module" << std::endl;
 	}
@@ -1109,7 +1109,7 @@ void VulkanEngine::init_pipelines()
 
 	vk::PipelineLayoutCreateInfo mvPipelineLayoutInfo;
 
-	DescriptorSetFlags mvDescFlags = DescriptorSetFlagBits::eGlobal;
+	Render::DescriptorSetFlags mvDescFlags = Render::DescriptorSetFlagBits::eGlobal;
 	auto mvSetLayouts = _descMng.get_layouts(mvDescFlags);
 
 	mvPipelineLayoutInfo.setSetLayouts(mvSetLayouts);
@@ -1159,7 +1159,7 @@ void VulkanEngine::init_pipelines()
 	});
 }
 
-void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd)
+void RenderSystem::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd)
 {
 	vk::CommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 	
@@ -1179,7 +1179,7 @@ void VulkanEngine::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&&
 	_device.resetCommandPool(_uploadContext._commandPool);
 }
 
-void VulkanEngine::load_meshes()
+void RenderSystem::load_meshes()
 {
 	Model suzanneModel;
 	suzanneModel._parentScene = &_scene;
@@ -1215,7 +1215,7 @@ void VulkanEngine::load_meshes()
 	_scene._models["cube"] = cube;
 }
 
-void VulkanEngine::init_blas()
+void RenderSystem::init_blas()
 {
 	std::vector<BLASInput> blasInputs;
 
@@ -1224,10 +1224,10 @@ void VulkanEngine::init_blas()
 		blasInputs.emplace_back(convert_to_blas_input(*_renderables[i].mesh));
 	}
 
-	vkrt::buildBlas(this, blasInputs);
+	RenderRT::buildBlas(this, blasInputs);
 }
 
-void VulkanEngine::init_tlas()
+void RenderSystem::init_tlas()
 {
 	std::vector<vk::AccelerationStructureInstanceKHR> tlas;
 	tlas.reserve(_renderables.size() - 1);
@@ -1235,25 +1235,25 @@ void VulkanEngine::init_tlas()
 	for (uint32_t i = 0; i < _renderables.size() - 1; ++i)
 	{
 		vk::AccelerationStructureInstanceKHR accelInst;
-		accelInst.setTransform(vkrt::convertToTransformKHR(_renderables[i].transformMatrix));
+		accelInst.setTransform(RenderRT::convertToTransformKHR(_renderables[i].transformMatrix));
 		accelInst.setInstanceCustomIndex(i);
-		accelInst.setAccelerationStructureReference(vkrt::getBlasDeviceAddress(this, i));
+		accelInst.setAccelerationStructureReference(RenderRT::getBlasDeviceAddress(this, i));
 		accelInst.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 		accelInst.setMask(0xFF);
 
 		tlas.emplace_back(accelInst);
 	}
 
-	vkrt::buildTlas(this, tlas);
+	RenderRT::buildTlas(this, tlas);
 
-	_descMng.register_accel_structure(RegisteredDescriptorSet::eTLAS, vk::ShaderStageFlagBits::eFragment,
+	_descMng.register_accel_structure(Render::RegisteredDescriptorSet::eTLAS, vk::ShaderStageFlagBits::eFragment,
 		_topLevelAS._structure, 0);
 
-	_descMng.register_accel_structure(RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR |
+	_descMng.register_accel_structure(Render::RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR |
 		vk::ShaderStageFlagBits::eClosestHitKHR, _topLevelAS._structure, 0);
 }
 
-void VulkanEngine::init_rt_descriptors()
+void RenderSystem::init_rt_descriptors()
 {
 	vk::SamplerCreateInfo mvSamplerInfo = vkinit::sampler_create_info(vk::Filter::eNearest, vk::Filter::eNearest,
 		1.0, vk::SamplerAddressMode::eClampToEdge);
@@ -1263,13 +1263,13 @@ void VulkanEngine::init_rt_descriptors()
 		1.0, vk::SamplerAddressMode::eClampToEdge);
 	vk::Sampler frameSampler = _device.createSampler(frameSamplerInfo);
 
-	std::vector<ImageInfo> outImageInfos(FRAME_OVERLAP);
-	std::vector<ImageInfo> mvInfos(FRAME_OVERLAP);
-	std::vector<ImageInfo> prevFrameInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> outImageInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> mvInfos(FRAME_OVERLAP);
+	std::vector<Render::DescriptorManager::ImageInfo> prevFrameInfos(FRAME_OVERLAP);
 
 	for (uint8_t i = 0; i < FRAME_OVERLAP; ++i)
 	{
-		ImageInfo fullFrameImage;
+		Render::DescriptorManager::ImageInfo fullFrameImage;
 		fullFrameImage.imageType = vk::DescriptorType::eCombinedImageSampler;
 		fullFrameImage.layout = vk::ImageLayout::eGeneral;
 		fullFrameImage.sampler = frameSampler;
@@ -1288,13 +1288,13 @@ void VulkanEngine::init_rt_descriptors()
 		prevFrameInfos[i].imageView = _prevFrameImageView;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, outImageInfos, 0,
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, outImageInfos, 0,
 		1, false, true);
 
-	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, mvInfos, 1,
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, mvInfos, 1,
 		1, false, true);
 
-	_descMng.register_image(RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, prevFrameInfos, 2,
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRTXPerFrame, vk::ShaderStageFlagBits::eRaygenKHR, prevFrameInfos, 2,
 		1, false, true);
 
 	_mainDeletionQueue.push_function([=]() {
@@ -1303,7 +1303,7 @@ void VulkanEngine::init_rt_descriptors()
 	});
 }
 
-void VulkanEngine::init_rt_pipeline()
+void RenderSystem::init_rt_pipeline()
 {
 	enum StageIndices
 	{
@@ -1322,7 +1322,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	// Raygen
 	vk::ShaderModule pathTracingRayGen;
-	if (!load_shader_module("../../../shaders/path_tracing.rgen.spv", &pathTracingRayGen))
+	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rgen.spv", &pathTracingRayGen))
 	{
 		std::cout << "Error building path tracing raygen shader module" << std::endl;
 	}
@@ -1336,7 +1336,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	// Miss
 	vk::ShaderModule pathTracingMiss;
-	if (!load_shader_module("../../../shaders/path_tracing.rmiss.spv", &pathTracingMiss))
+	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rmiss.spv", &pathTracingMiss))
 	{
 		std::cout << "Error building path tracing miss shader module" << std::endl;
 	}
@@ -1350,7 +1350,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	// Shadow miss
 	vk::ShaderModule shadowMiss;
-	if (!load_shader_module("../../../shaders/trace_shadow.rmiss.spv", &shadowMiss))
+	if (!load_shader_module("../../../render/shader_binaries/trace_shadow.rmiss.spv", &shadowMiss))
 	{
 		std::cout << "Error building shadow miss shader module" << std::endl;
 	}
@@ -1364,7 +1364,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	// Closest hit
 	vk::ShaderModule pathTracingClosestHit;
-	if (!load_shader_module("../../../shaders/path_tracing.rchit.spv", &pathTracingClosestHit))
+	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rchit.spv", &pathTracingClosestHit))
 	{
 		std::cout << "Error building path tracing closest hit shader module" << std::endl;
 	}
@@ -1378,7 +1378,7 @@ void VulkanEngine::init_rt_pipeline()
 
 	// Any hit
 	vk::ShaderModule pathTracingAnyHit;
-	if (!load_shader_module("../../../shaders/path_tracing.rahit.spv", &pathTracingAnyHit))
+	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rahit.spv", &pathTracingAnyHit))
 	{
 		std::cout << "Error building path tracing any hit shader module" << std::endl;
 	}
@@ -1428,10 +1428,10 @@ void VulkanEngine::init_rt_pipeline()
 
 	rtPipelineLayoutInfo.setPushConstantRanges(rayPushConstants);
 
-	DescriptorSetFlags rtPipelineDescFlags = DescriptorSetFlagBits::eRTXGeneral | DescriptorSetFlagBits::eRTXPerFrame |
-		DescriptorSetFlagBits::eGlobal | DescriptorSetFlagBits::eObjects | DescriptorSetFlagBits::eDiffuseTextures |
-		DescriptorSetFlagBits::eMetallicTextures | DescriptorSetFlagBits::eRoughnessTextures |
-		DescriptorSetFlagBits::eNormalMapTextures | DescriptorSetFlagBits::eSkyboxTextures;
+	Render::DescriptorSetFlags rtPipelineDescFlags = Render::DescriptorSetFlagBits::eRTXGeneral | Render::DescriptorSetFlagBits::eRTXPerFrame |
+		Render::DescriptorSetFlagBits::eGlobal | Render::DescriptorSetFlagBits::eObjects | Render::DescriptorSetFlagBits::eDiffuseTextures |
+		Render::DescriptorSetFlagBits::eMetallicTextures | Render::DescriptorSetFlagBits::eRoughnessTextures |
+		Render::DescriptorSetFlagBits::eNormalMapTextures | Render::DescriptorSetFlagBits::eSkyboxTextures;
 
 	std::vector<vk::DescriptorSetLayout> rtPipelineSetLayouts = _descMng.get_layouts(rtPipelineDescFlags);
 
@@ -1469,7 +1469,7 @@ void VulkanEngine::init_rt_pipeline()
 	}
 }
 
-void VulkanEngine::init_shader_binding_table()
+void RenderSystem::init_shader_binding_table()
 {
 	uint32_t rmissCount = 2;
 	uint32_t rchitCount = 1;
@@ -1541,7 +1541,7 @@ void VulkanEngine::init_shader_binding_table()
 	});
 }
 
-void VulkanEngine::init_ui()
+void RenderSystem::init_ui()
 {
 	vk::DescriptorPoolSize poolSizes[] = { { vk::DescriptorType::eSampler, 1000 },
 		{ vk::DescriptorType::eCombinedImageSampler, 1000 },
@@ -1594,10 +1594,10 @@ void VulkanEngine::init_ui()
 }
 
 
-bool VulkanEngine::load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
+bool RenderSystem::load_material_texture(Texture& tex, const std::string& texName, const std::string& matName,
 	uint32_t texSlot, bool generateMipmaps/* = true */, vk::Format format/* = vk::Format::eR8G8B8A8Srgb */)
 {
-	if (!vkutil::load_image_from_file(this, texName.data(), tex.image, generateMipmaps, format))
+	if (!RenderUtil::load_image_from_file(this, texName.data(), tex.image, generateMipmaps, format))
 	{
 		return false;
 	}
@@ -1615,7 +1615,7 @@ bool VulkanEngine::load_material_texture(Texture& tex, const std::string& texNam
 	return true;
 }
 
-void VulkanEngine::load_skybox(Texture& skybox, const std::string& directory)
+void RenderSystem::load_skybox(Texture& skybox, const std::string& directory)
 {
 	std::vector<std::string> files = {
 		"px.png", "nx.png",
@@ -1628,10 +1628,10 @@ void VulkanEngine::load_skybox(Texture& skybox, const std::string& directory)
 		files[i] = directory + files[i];
 	}
 
-	vkutil::load_cubemap_from_files(this, files, skybox.image);
+	RenderUtil::load_cubemap_from_files(this, files, skybox.image);
 }
 
-void VulkanEngine::load_images()
+void RenderSystem::load_images()
 {
 	Model* curModel = get_model("scene");
 
@@ -1645,7 +1645,7 @@ void VulkanEngine::load_images()
 
 	Texture defaultTex = {};
 
-	vkutil::load_image_from_file(this, "../../../assets/null-texture.png", defaultTex.image);
+	RenderUtil::load_image_from_file(this, "../../../assets/null-texture.png", defaultTex.image);
 
 	vk::ImageViewCreateInfo defaultTexViewInfo = vkinit::image_view_create_info(vk::Format::eR8G8B8A8Srgb,
 		defaultTex.image._image, vk::ImageAspectFlagBits::eColor, defaultTex.image._mipLevels);
@@ -1656,12 +1656,12 @@ void VulkanEngine::load_images()
 	});
 
 
-	ImageInfo texInfo;
+	Render::DescriptorManager::ImageInfo texInfo;
 	texInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
 	texInfo.sampler = smoothSampler;
 	texInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-	std::vector<ImageInfo> diffuseInfos(_scene._diffuseTexNames.size());
+	std::vector<Render::DescriptorManager::ImageInfo> diffuseInfos(_scene._diffuseTexNames.size());
 
 	for (size_t i = 0; i < _scene._diffuseTexNames.size(); ++i)
 	{
@@ -1685,12 +1685,12 @@ void VulkanEngine::load_images()
 		diffuseInfos[i].imageView = _loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT].imageView;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eDiffuseTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR |
+	_descMng.register_image(Render::RegisteredDescriptorSet::eDiffuseTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR |
 		vk::ShaderStageFlagBits::eAnyHitKHR, diffuseInfos, 0, static_cast<uint32_t>(_scene._diffuseTexNames.size()),
 		true);
 
 
-	std::vector<ImageInfo> metallicInfos(_scene._metallicTexNames.size());
+	std::vector<Render::DescriptorManager::ImageInfo> metallicInfos(_scene._metallicTexNames.size());
 	for (size_t i = 0; i < _scene._metallicTexNames.size(); ++i)
 	{
 		Texture metallic = {};
@@ -1713,12 +1713,12 @@ void VulkanEngine::load_images()
 		metallicInfos[i].imageView = _loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT].imageView;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eMetallicTextures, vk::ShaderStageFlagBits::eFragment |
+	_descMng.register_image(Render::RegisteredDescriptorSet::eMetallicTextures, vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR,
 		metallicInfos, 0, static_cast<uint32_t>(_scene._metallicTexNames.size()), true);
 
 
-	std::vector<ImageInfo> roughnessInfos(_scene._roughnessTexNames.size());
+	std::vector<Render::DescriptorManager::ImageInfo> roughnessInfos(_scene._roughnessTexNames.size());
 	for (size_t i = 0; i < _scene._roughnessTexNames.size(); ++i)
 	{
 		Texture roughness = {};
@@ -1741,12 +1741,12 @@ void VulkanEngine::load_images()
 		roughnessInfos[i].imageView = _loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT].imageView;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eRoughnessTextures, vk::ShaderStageFlagBits::eFragment |
+	_descMng.register_image(Render::RegisteredDescriptorSet::eRoughnessTextures, vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR, roughnessInfos, 0,
 		static_cast<uint32_t>(_scene._roughnessTexNames.size()), true);
 
 
-	std::vector<ImageInfo> normalMapInfos(_scene._normalMapNames.size());
+	std::vector<Render::DescriptorManager::ImageInfo> normalMapInfos(_scene._normalMapNames.size());
 	for (size_t i = 0; i < _scene._normalMapNames.size(); ++i)
 	{
 		Texture normalMap = {};
@@ -1759,7 +1759,7 @@ void VulkanEngine::load_images()
 
 			if (!loadRes)
 			{
-				vkutil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal.image, true,
+				RenderUtil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal.image, true,
 					vk::Format::eR32G32B32A32Sfloat);
 
 				vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR32G32B32A32Sfloat,
@@ -1775,7 +1775,7 @@ void VulkanEngine::load_images()
 		}
 		else
 		{
-			vkutil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal.image, true,
+			RenderUtil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal.image, true,
 				vk::Format::eR32G32B32A32Sfloat);
 
 			vk::ImageViewCreateInfo imageViewInfo = vkinit::image_view_create_info(vk::Format::eR32G32B32A32Sfloat,
@@ -1793,7 +1793,7 @@ void VulkanEngine::load_images()
 		normalMapInfos[i].imageView = _loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT].imageView;
 	}
 
-	_descMng.register_image(RegisteredDescriptorSet::eNormalMapTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eClosestHitKHR |
+	_descMng.register_image(Render::RegisteredDescriptorSet::eNormalMapTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eClosestHitKHR |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR, normalMapInfos,
 		0, static_cast<uint32_t>(_scene._normalMapNames.size()), true);
 
@@ -1804,13 +1804,13 @@ void VulkanEngine::load_images()
 		_skybox.image._image, vk::ImageAspectFlagBits::eColor, _skybox.image._mipLevels, ImageType::eCubemap);
 	_skybox.imageView = _device.createImageView(imageViewInfo);
 
-	ImageInfo skyboxInfo;
+	Render::DescriptorManager::ImageInfo skyboxInfo;
 	skyboxInfo.imageView = _skybox.imageView;
 	skyboxInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
 	skyboxInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 	skyboxInfo.sampler = smoothSampler;
 
-	_descMng.register_image(RegisteredDescriptorSet::eSkyboxTextures, vk::ShaderStageFlagBits::eFragment |
+	_descMng.register_image(Render::RegisteredDescriptorSet::eSkyboxTextures, vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eMissKHR, { skyboxInfo }, 0);
 
 	_mainDeletionQueue.push_function([=]() {
@@ -1818,12 +1818,12 @@ void VulkanEngine::load_images()
 	});
 }
 
-void VulkanEngine::reset_frame()
+void RenderSystem::reset_frame()
 {
 	_rayConstants.frame = -1;
 }
 
-void VulkanEngine::update_frame()
+void RenderSystem::update_frame()
 {
 	static glm::mat4 refCamMatrix = {};
 	static float refFov = _camera._zoom;
@@ -1847,7 +1847,7 @@ void VulkanEngine::update_frame()
 	++_rayConstants.frame;
 }
 
-void VulkanEngine::update_buffer_memory(const float* sourceData, size_t bufferSize,
+void RenderSystem::update_buffer_memory(const float* sourceData, size_t bufferSize,
 	AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer/* = nullptr*/)
 {
 	if (targetBuffer._memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
@@ -1868,7 +1868,7 @@ void VulkanEngine::update_buffer_memory(const float* sourceData, size_t bufferSi
 	}
 }
 
-void VulkanEngine::init_scene()
+void RenderSystem::init_scene()
 {
 	RenderObject suzanne = {};
 	suzanne.model = get_model("suzanne");
@@ -1934,7 +1934,7 @@ void VulkanEngine::init_scene()
 	_sceneParameters.pointLights[2] = backLight;
 }
 
-void VulkanEngine::upload_mesh(Mesh& mesh)
+void RenderSystem::upload_mesh(Mesh& mesh)
 {
 	vk::BufferUsageFlags vertexBufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
 		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
@@ -1956,7 +1956,7 @@ void VulkanEngine::upload_mesh(Mesh& mesh)
 	});
 }
 
-void VulkanEngine::cleanup()
+void RenderSystem::cleanup()
 {
 	if (_isInitialized) {
 		--_frameNumber;
@@ -1974,7 +1974,7 @@ void VulkanEngine::cleanup()
 	}
 }
 
-void VulkanEngine::draw()
+void RenderSystem::draw()
 {
 	// wait until the GPU has finished rendering the last frame, with timeout of 1 second
 	VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
@@ -2236,7 +2236,7 @@ void VulkanEngine::draw()
 	++_frameNumber;
 }
 
-size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
+size_t RenderSystem::pad_uniform_buffer_size(size_t originalSize)
 {
 	// calculate alignment based on min device offset alignment
 	size_t minUBOAlignment = _gpuProperties.properties.limits.minUniformBufferOffsetAlignment;
@@ -2248,7 +2248,7 @@ size_t VulkanEngine::pad_uniform_buffer_size(size_t originalSize)
 	return alignedSize;
 }
 
-vk::DeviceSize VulkanEngine::align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment)
+vk::DeviceSize RenderSystem::align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment)
 {
 	vk::DeviceSize alignedSize = originalSize;
 	if (alignment > 0)
@@ -2258,7 +2258,7 @@ vk::DeviceSize VulkanEngine::align_up(vk::DeviceSize originalSize, vk::DeviceSiz
 	return alignedSize;
 }
 
-AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
+AllocatedBuffer RenderSystem::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
 	VmaAllocationCreateFlags flags/* = 0 */, vk::MemoryPropertyFlags reqFlags/* = {}*/)
 {
 	vk::BufferCreateInfo bufferInfo = {};
@@ -2281,7 +2281,7 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, vk::BufferUsageFla
 	return newBuffer;
 }
 
-AllocatedImage VulkanEngine::create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage)
+AllocatedImage RenderSystem::create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage)
 {
 	AllocatedImage newImage;
 
@@ -2299,7 +2299,7 @@ AllocatedImage VulkanEngine::create_image(const vk::ImageCreateInfo& createInfo,
 	return newImage;
 }
 
-void VulkanEngine::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
+void RenderSystem::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
 	vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent)
 {
 	vk::ImageCopy copyInfo;
@@ -2315,14 +2315,14 @@ void VulkanEngine::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspect
 	cmd.copyImage(srcImage, srcImageLayout, dstImage, dstImageLayout, copyInfo);
 }
 
-vk::DeviceAddress VulkanEngine::get_buffer_device_address(vk::Buffer buffer)
+vk::DeviceAddress RenderSystem::get_buffer_device_address(vk::Buffer buffer)
 {
 	vk::BufferDeviceAddressInfo bufferAddressInfo;
 	bufferAddressInfo.setBuffer(buffer);
 	return _device.getBufferAddress(bufferAddressInfo);
 }
 
-BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
+BLASInput RenderSystem::convert_to_blas_input(Mesh& mesh)
 {
 	vk::DeviceAddress vertexAddress = get_buffer_device_address(mesh._vertexBuffer._buffer);
 	vk::DeviceAddress indexAddress = get_buffer_device_address(mesh._indexBuffer._buffer);
@@ -2353,8 +2353,8 @@ BLASInput VulkanEngine::convert_to_blas_input(Mesh& mesh)
 	return blasInput;
 }
 
-MaterialSet* VulkanEngine::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
-	DescriptorSetFlags descSetFlags)
+MaterialSet* RenderSystem::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
+	Render::DescriptorSetFlags descSetFlags)
 {
 	MaterialSet matSet;
 	matSet.pipeline = pipeline;
@@ -2367,14 +2367,14 @@ MaterialSet* VulkanEngine::create_material_set(vk::Pipeline pipeline, vk::Pipeli
 	return &(_materialSets[setId]);
 }
 
-MaterialSet* VulkanEngine::get_material_set(PipelineType pipelineType)
+MaterialSet* RenderSystem::get_material_set(PipelineType pipelineType)
 {
 	auto setId = static_cast<size_t>(pipelineType);
 
 	return &(_materialSets[setId]);
 }
 
-Model* VulkanEngine::get_model(const std::string& name)
+Model* RenderSystem::get_model(const std::string& name)
 {
 	auto it = _scene._models.find(name);
 	if (it == _scene._models.end())
@@ -2387,7 +2387,7 @@ Model* VulkanEngine::get_model(const std::string& name)
 	}
 }
 
-void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count)
+void RenderSystem::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
@@ -2450,7 +2450,7 @@ void VulkanEngine::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 	vmaUnmapMemory(_allocator, get_current_frame()._objectBuffer._allocation);
 }
 
-void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
+void RenderSystem::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
@@ -2481,7 +2481,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
 				sizeof(SceneData)) * frameIndex);
 
-			DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
+			Render::DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
 			auto pipelineDescriptorSets = _descMng.get_descriptor_sets(descFlags, frameIndex);
 
@@ -2504,7 +2504,7 @@ void VulkanEngine::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	}
 }
 
-void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd)
+void RenderSystem::draw_lighting_pass(vk::CommandBuffer cmd)
 {
 	MaterialSet* lightingMatSet = get_material_set(PipelineType::eLightingPass);
 
@@ -2516,7 +2516,7 @@ void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd)
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
 		sizeof(SceneData)) * frameIndex);
 
-	DescriptorSetFlags lightingDescFlags = lightingMatSet->usedDescriptorSets;
+	Render::DescriptorSetFlags lightingDescFlags = lightingMatSet->usedDescriptorSets;
 
 	auto lightingDescSets = _descMng.get_descriptor_sets(lightingDescFlags, frameIndex);
 
@@ -2526,7 +2526,7 @@ void VulkanEngine::draw_lighting_pass(vk::CommandBuffer cmd)
 	cmd.draw(3, 1, 0, 0);
 }
 
-void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType)
+void RenderSystem::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType)
 {
 	MaterialSet* screenQuadMaterial = get_material_set(pipelineType);
 
@@ -2536,11 +2536,11 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipeline
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
 		sizeof(SceneData)) * frameIndex);
 
-	DescriptorSetFlags quadDescFlags = screenQuadMaterial->usedDescriptorSets;
+	Render::DescriptorSetFlags quadDescFlags = screenQuadMaterial->usedDescriptorSets;
 
 	auto quadDescSets = _descMng.get_descriptor_sets(quadDescFlags, frameIndex);
 
-	if (quadDescFlags & static_cast<DescriptorSetFlags>(DescriptorSetFlagBits::eGlobal))
+	if (quadDescFlags & static_cast<Render::DescriptorSetFlags>(Render::DescriptorSetFlagBits::eGlobal))
 	{
 		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipelineLayout, 0,
 			quadDescSets, uniformOffset);
@@ -2568,7 +2568,7 @@ void VulkanEngine::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipeline
 	cmd.draw(3, 1, 0, 0);
 }
 
-void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
+void RenderSystem::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 {
 	glm::mat4 view = _camera.get_view_matrix();
 
@@ -2589,7 +2589,7 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
 		sizeof(SceneData)) * frameIndex);
 
-	DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
+	Render::DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
 	auto descSets = _descMng.get_descriptor_sets(descFlags, frameIndex);
 
@@ -2614,7 +2614,7 @@ void VulkanEngine::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	cmd.drawIndexed(static_cast<uint32_t>(object.mesh->_indices.size()), 1, 0, 0, 0);
 }
 
-void VulkanEngine::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
+void RenderSystem::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 {
 	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::rendering_attachment_info(targetImageView,
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, {});
@@ -2631,7 +2631,7 @@ void VulkanEngine::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 	cmd.endRendering();
 }
 
-void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex)
+void RenderSystem::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex)
 {
 	update_frame();
 
@@ -2643,7 +2643,7 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	FrameData& currentFrame = _frames[swapchainImageIndex];
 
 	MaterialSet* rtMaterial = get_material_set(PipelineType::eRayTracing);
-	DescriptorSetFlags rtDescFlags = rtMaterial->usedDescriptorSets;
+	Render::DescriptorSetFlags rtDescFlags = rtMaterial->usedDescriptorSets;
 
 	std::vector<vk::DescriptorSet> rtSets = _descMng.get_descriptor_sets(rtDescFlags, swapchainImageIndex);
 
@@ -2667,7 +2667,7 @@ void VulkanEngine::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	cmd.traceRaysKHR(_rgenRegion, _rmissRegion, _rchitRegion, _rcallRegion, _windowExtent.width, _windowExtent.height, 1);
 }
 
-void VulkanEngine::on_mouse_motion_callback()
+void RenderSystem::on_mouse_motion_callback()
 {
 	float outRelX = 0;
 	float outRelY = 0;
@@ -2680,12 +2680,12 @@ void VulkanEngine::on_mouse_motion_callback()
 	_camera.process_camera_movement(xOffset, yOffset);
 }
 
-void VulkanEngine::on_mouse_scroll_callback(float yOffset)
+void RenderSystem::on_mouse_scroll_callback(float yOffset)
 {
 	_camera.process_mouse_scroll(yOffset);
 }
 
-void VulkanEngine::on_keyboard_event_callback(SDL_Keycode sym)
+void RenderSystem::on_keyboard_event_callback(SDL_Keycode sym)
 {
 	switch (sym)
 	{
@@ -2730,7 +2730,7 @@ void VulkanEngine::on_keyboard_event_callback(SDL_Keycode sym)
 	}
 }
 
-void VulkanEngine::run()
+void RenderSystem::run()
 {
 	SDL_Event e;
 	bool bQuit = false;
@@ -2848,7 +2848,7 @@ void VulkanEngine::run()
 	}
 }
 
-bool VulkanEngine::load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule)
+bool RenderSystem::load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule)
 {
 	// open the file, put cursor at the end
 	std::ifstream file(filePath, std::ios::ate | std::ios::binary);

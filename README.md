@@ -44,7 +44,7 @@ msbuild plume.sln
 ```
 The executable will be located in `{project-root}/build/bin/Debug/plume.exe`.
 
-By default, Vulkan validation layers are enabled in Debug mode and disabled in Release mode. To switch between hybrid and path tracing modes (for now) you should change the variable `VulkanEngine::_renderMode` on line 129 in the `src/vk_engine.h` file.
+By default, Vulkan validation layers are enabled in Debug mode and disabled in Release mode. To switch between hybrid and path tracing modes (for now) you should change the variable `RenderSystem::_renderMode` on line 128 in the `render/render_system.h` file.
 
 ## Acknowledgements
 

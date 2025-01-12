@@ -1,12 +1,12 @@
-#include "vk_textures.h"
+#include "render_textures.h"
 #include <iostream>
 
-#include "vk_initializers.h"
+#include "render_initializers.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, AllocatedImage& outImage,
+bool RenderUtil::load_image_from_file(RenderSystem* renderSys, const char* file, AllocatedImage& outImage,
 	bool generateMipmaps/* = true */, vk::Format imageFormat/* = vk::Format::eR8G8B8A8Srgb */)
 {
 	int texWidth, texHeight, texChannels;
@@ -42,16 +42,16 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	}
 
 	// hold texture data
-	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+	AllocatedBuffer stagingBuffer = renderSys->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
 		VMA_MEMORY_USAGE_CPU_ONLY);
 
 	// copy data to buffer
 	void* data;
-	vmaMapMemory(engine->_allocator, stagingBuffer._allocation, &data);
+	vmaMapMemory(renderSys->_allocator, stagingBuffer._allocation, &data);
 
 	memcpy(data, pixel_ptr, static_cast<size_t>(imageSize));
 
-	vmaUnmapMemory(engine->_allocator, stagingBuffer._allocation);
+	vmaUnmapMemory(renderSys->_allocator, stagingBuffer._allocation);
 
 	stbi_image_free(pixels);
 
@@ -73,11 +73,11 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	VkImageCreateInfo imageInfoC = static_cast<VkImageCreateInfo>(imageInfo);
 	VkImage imageC = {};
 
-	vmaCreateImage(engine->_allocator, &imageInfoC, &imgAllocInfo, &imageC, &newImage._allocation, nullptr);
+	vmaCreateImage(renderSys->_allocator, &imageInfoC, &imgAllocInfo, &imageC, &newImage._allocation, nullptr);
 
 	newImage._image = imageC;
 
-	engine->immediate_submit([&](vk::CommandBuffer cmd) {
+	renderSys->immediate_submit([&](vk::CommandBuffer cmd) {
 		vk::ImageSubresourceRange range;
 		range.aspectMask = vk::ImageAspectFlagBits::eColor;
 		range.baseMipLevel = 0;
@@ -113,7 +113,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 		// copy the buffer
 		cmd.copyBufferToImage(stagingBuffer._buffer, newImage._image, vk::ImageLayout::eTransferDstOptimal, copyRegion);
 
-		vk::FormatProperties formatProperties = engine->_chosenGPU.getFormatProperties(imageFormat);
+		vk::FormatProperties formatProperties = renderSys->_chosenGPU.getFormatProperties(imageFormat);
 		
 		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear) || !generateMipmaps)
 		{
@@ -134,13 +134,13 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 			generate_mipmaps(cmd, newImage._image, texWidth, texHeight, newImage._mipLevels);
 		}
 
-	}, engine->_uploadContext._commandBuffer);
+	}, renderSys->_uploadContext._commandBuffer);
 
-	engine->_mainDeletionQueue.push_function([=]() {
-		vmaDestroyImage(engine->_allocator, newImage._image, newImage._allocation);
+	renderSys->_mainDeletionQueue.push_function([=]() {
+		vmaDestroyImage(renderSys->_allocator, newImage._image, newImage._allocation);
 	});
 
-	vmaDestroyBuffer(engine->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+	vmaDestroyBuffer(renderSys->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 
 	std::cout << "Texture from " << file << " loaded successfully" << std::endl;
 
@@ -148,7 +148,7 @@ bool vkutil::load_image_from_file(VulkanEngine* engine, const char* file, Alloca
 	return true;
 }
 
-bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std::string>& files,
+bool RenderUtil::load_cubemap_from_files(RenderSystem* renderSys, const std::vector<std::string>& files,
 	AllocatedImage& outImage)
 {
 	vk::DeviceSize imageSize = 0;
@@ -204,16 +204,16 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 	vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
 
 	// hold texture data
-	AllocatedBuffer stagingBuffer = engine->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+	AllocatedBuffer stagingBuffer = renderSys->create_buffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
 		VMA_MEMORY_USAGE_CPU_ONLY);
 
 	// copy data to buffer
 	void* data;
-	vmaMapMemory(engine->_allocator, stagingBuffer._allocation, &data);
+	vmaMapMemory(renderSys->_allocator, stagingBuffer._allocation, &data);
 
 	std::memcpy(data, pPixel, static_cast<size_t>(imageSize));
 
-	vmaUnmapMemory(engine->_allocator, stagingBuffer._allocation);
+	vmaUnmapMemory(renderSys->_allocator, stagingBuffer._allocation);
 
 	stbi_image_free(pixels);
 
@@ -236,11 +236,11 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 	VkImageCreateInfo imageInfoC = static_cast<VkImageCreateInfo>(imageInfo);
 	VkImage imageC = {};
 
-	vmaCreateImage(engine->_allocator, &imageInfoC, &imgAllocInfo, &imageC, &newImage._allocation, nullptr);
+	vmaCreateImage(renderSys->_allocator, &imageInfoC, &imgAllocInfo, &imageC, &newImage._allocation, nullptr);
 
 	newImage._image = imageC;
 
-	engine->immediate_submit([&](vk::CommandBuffer cmd) {
+	renderSys->immediate_submit([&](vk::CommandBuffer cmd) {
 		vk::ImageSubresourceRange range;
 		range.aspectMask = vk::ImageAspectFlagBits::eColor;
 		range.baseMipLevel = 0;
@@ -281,7 +281,7 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 		// copy the buffer
 		cmd.copyBufferToImage(stagingBuffer._buffer, newImage._image, vk::ImageLayout::eTransferDstOptimal, bufferCopyRegions);
 
-		vk::FormatProperties formatProperties = engine->_chosenGPU.getFormatProperties(imageFormat);
+		vk::FormatProperties formatProperties = renderSys->_chosenGPU.getFormatProperties(imageFormat);
 
 		outImage._mipLevels = 1;
 		// change layout to shader read optimal
@@ -295,13 +295,13 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 
 		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr, nullptr, imageBarrierToReadable);
 
-	}, engine->_uploadContext._commandBuffer);
+	}, renderSys->_uploadContext._commandBuffer);
 
-	engine->_mainDeletionQueue.push_function([=]() {
-		vmaDestroyImage(engine->_allocator, newImage._image, newImage._allocation);
+	renderSys->_mainDeletionQueue.push_function([=]() {
+		vmaDestroyImage(renderSys->_allocator, newImage._image, newImage._allocation);
 		});
 
-	vmaDestroyBuffer(engine->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
+	vmaDestroyBuffer(renderSys->_allocator, stagingBuffer._buffer, stagingBuffer._allocation);
 
 	std::cout << "Cubemap texture loaded successfully" << std::endl;
 
@@ -309,7 +309,7 @@ bool vkutil::load_cubemap_from_files(VulkanEngine* engine, const std::vector<std
 	return true;
 }
 
-void vkutil::generate_mipmaps(vk::CommandBuffer cmd, vk::Image image, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
+void RenderUtil::generate_mipmaps(vk::CommandBuffer cmd, vk::Image image, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
 {
 	vk::ImageMemoryBarrier barrier = {};
 

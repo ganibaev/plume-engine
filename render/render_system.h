@@ -1,16 +1,16 @@
 ﻿#pragma once
 
-#include "vk_types.h"
-#include "vk_cfg.h"
+#include "render_types.h"
+#include "render_cfg.h"
 #include <vector>
 #include <tuple>
 #include <string>
 #include <iostream>
 #include <unordered_set>
 
-#include "vk_descriptors.h"
-#include "vk_camera.h"
-#include "vk_mesh.h"
+#include "render_descriptors.h"
+#include "render_camera.h"
+#include "render_mesh.h"
 
 #include <glm/glm.hpp>
 
@@ -21,7 +21,7 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
-#include "../shaders/host_device_common.h"
+#include "../render/shaders/host_device_common.h"
 
 #define VK_CHECK(x)																\
 	do																			\
@@ -58,7 +58,7 @@ struct MaterialSet
 	vk::Pipeline pipeline;
 	vk::PipelineLayout pipelineLayout;
 
-	DescriptorSetFlags usedDescriptorSets;
+	Render::DescriptorSetFlags usedDescriptorSets;
 };
 
 struct UploadContext
@@ -120,9 +120,8 @@ struct ConfigurationVariables
 };
 
 
-class VulkanEngine {
+class RenderSystem {
 public:
-
 	bool _isInitialized = false;
 	int _frameNumber = 0;
 
@@ -160,7 +159,7 @@ public:
 	vk::Device _device; // commands will be executed on this 
 	vk::SurfaceKHR _surface; // window surface
 
-	DescriptorManager _descMng;
+	Render::DescriptorManager _descMng;
 
 	vk::PhysicalDeviceProperties2 _gpuProperties;
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR _rtProperties;
@@ -287,7 +286,7 @@ public:
 	RenderObject _skyboxObject;
 
 	MaterialSet* create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
-		DescriptorSetFlags descSetFlags);
+		Render::DescriptorSetFlags descSetFlags);
 
 	MaterialSet* get_material_set(PipelineType pipelineType);
 

@@ -1,9 +1,9 @@
-#include "vk_cfg.h"
-#include "vk_descriptors.h"
-#include "vk_initializers.h"
+#include "render_cfg.h"
+#include "render_descriptors.h"
+#include "render_initializers.h"
 
 
-void DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
+void Render::DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
 {
 	_pDevice = pDevice;
 	_pDeletionQueue = pDeletionQueue;
@@ -17,7 +17,7 @@ void DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
 	}
 }
 
-void DescriptorManager::allocate_sets()
+void Render::DescriptorManager::allocate_sets()
 {
 	std::vector<vk::DescriptorPoolSize> poolSizes = {
 		{ vk::DescriptorType::eUniformBuffer, 10 },
@@ -137,7 +137,7 @@ void DescriptorManager::allocate_sets()
 	});
 }
 
-void DescriptorManager::update_sets()
+void Render::DescriptorManager::update_sets()
 {
 	std::vector<vk::WriteDescriptorSet> bulkWrites;
 	bulkWrites.reserve(_setQueue.size() * FRAME_OVERLAP);
@@ -157,7 +157,7 @@ void DescriptorManager::update_sets()
 	_pDevice->updateDescriptorSets(bulkWrites, {});
 }
 
-void DescriptorManager::register_buffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	const std::vector<BufferInfo>& bufferInfos, uint32_t binding, uint32_t numDescs /* = 1 */, bool isPerFrame /* = false */)
 {
 	DescriptorSetInfo& set = _setQueue[static_cast<uint16_t>(descriptorSetType)];
@@ -209,7 +209,7 @@ void DescriptorManager::register_buffer(RegisteredDescriptorSet descriptorSetTyp
 	set.layoutBindings[binding] = setBinding;
 }
 
-void DescriptorManager::register_image(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::register_image(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	const std::vector<ImageInfo>& imageInfos, uint32_t binding, uint32_t numDescs /* = 1 */, bool isBindless /* = false */,
 	bool isPerFrame /* = false */)
 {
@@ -290,7 +290,7 @@ void DescriptorManager::register_image(RegisteredDescriptorSet descriptorSetType
 	set.layoutBindings[binding] = setBinding;
 }
 
-void DescriptorManager::register_accel_structure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::register_accel_structure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame /* = false */)
 {
 	DescriptorSetInfo& set = _setQueue[static_cast<uint16_t>(descriptorSetType)];
@@ -348,7 +348,7 @@ void DescriptorManager::register_accel_structure(RegisteredDescriptorSet descrip
 	set.layoutBindings[binding] = setBinding;
 }
 
-std::vector<vk::DescriptorSetLayout> DescriptorManager::get_layouts(DescriptorSetFlags usedDscMask)
+std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(DescriptorSetFlags usedDscMask)
 {
 	std::vector<vk::DescriptorSetLayout> layouts;
 
@@ -365,7 +365,7 @@ std::vector<vk::DescriptorSetLayout> DescriptorManager::get_layouts(DescriptorSe
 	return layouts;
 }
 
-std::vector<vk::DescriptorSet> DescriptorManager::get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId)
+std::vector<vk::DescriptorSet> Render::DescriptorManager::get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId)
 {
 	std::vector<vk::DescriptorSet> sets;
 

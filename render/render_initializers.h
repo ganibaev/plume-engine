@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "vk_types.h"
+#include "render_types.h"
 #include <vector>
 
 namespace vkinit {

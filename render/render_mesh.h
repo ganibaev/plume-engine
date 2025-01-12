@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vk_types.h"
+#include "render_types.h"
 #include <vector>
 #include <glm/glm.hpp>
 #include <string>
@@ -9,7 +9,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
-#include <../shaders/host_device_common.h>
+#include <../render/shaders/host_device_common.h>
 
 struct VertexInputDescription
 {
