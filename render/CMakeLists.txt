@@ -1,7 +1,5 @@
 # Add source to this project's executable.
 target_sources(plume PUBLIC
-    render_camera.cpp
-    render_camera.h
     render_system.cpp
     render_system.h
     render_descriptors.cpp

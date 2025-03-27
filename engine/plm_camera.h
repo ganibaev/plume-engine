@@ -2,20 +2,18 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-#include <SDL.h>
-#include <SDL_vulkan.h>
-
-#include <vector>
+#include <array>
 
 enum class CameraMovement
 {
+	NONE,
 	FORWARD,
 	BACKWARD,
 	LEFT,
 	RIGHT,
 	UP,
-	DOWN
+	DOWN,
+	MAX_ENUM
 };
 
 constexpr float YAW = -90.0f;
@@ -24,7 +22,7 @@ constexpr float SPEED = 20.0f;
 constexpr float SENSITIVITY = 0.1f;
 constexpr float ZOOM = 70.0f;
 
-class Camera
+class PlumeCamera
 {
 public:
 	glm::vec3 _position{ 0.0f };
@@ -40,32 +38,37 @@ public:
 	float _mouseSensitivity;
 	float _zoom;
 
-	Camera(glm::vec3 position)
+	PlumeCamera(glm::vec3 position)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position)
 	{
 		update_camera_vectors();
 	}
 
-	Camera(glm::vec3 position, glm::vec3 up, float yaw = YAW, float pitch = PITCH)
+	PlumeCamera(glm::vec3 position, glm::vec3 up, float yaw = YAW, float pitch = PITCH)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position), _worldUp(up), _yaw(yaw), _pitch(pitch)
 	{
 		update_camera_vectors();
 	}
 
-	Camera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch)
+	PlumeCamera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(glm::vec3(posX, posY, posZ)), _worldUp(glm::vec3(upX, upY, upZ)), _yaw(yaw), _pitch(pitch)
 	{
 		update_camera_vectors();
 	}
 
-	glm::mat4 get_view_matrix()
+	const glm::mat4 get_view_matrix() const
 	{
 		return glm::lookAt(_position, _position + _front, _up);
 	}
 
-	void process_keyboard(CameraMovement direction, float timeDelta);
-	void process_camera_movement(float xOffset, float yOffset, bool constrainPitch = true);
+	void process_movement(CameraMovement direction, float timeDelta);
+	void process_camera_motion(float xOffset, float yOffset, bool constrainPitch = true);
 	void process_mouse_scroll(float yOffset);
+
+	bool is_movement_active(CameraMovement movement) const { return _activeMovements[static_cast<size_t>(movement)]; }
+	void set_movement_status(CameraMovement movement, bool isActive) { _activeMovements[static_cast<size_t>(movement)] = isActive; }
 private:
+	std::array<bool, static_cast<size_t>(CameraMovement::MAX_ENUM)> _activeMovements = { false };
+
 	void update_camera_vectors();
 };

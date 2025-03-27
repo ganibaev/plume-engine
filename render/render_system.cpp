@@ -30,20 +30,21 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "imgui_impl_vulkan.h"
 
 
-void RenderSystem::init()
+void RenderSystem::unpack_init_data(const RenderSystem::InitData& initData)
 {
-	// We initialize SDL and create a window with it. 
-	SDL_Init(SDL_INIT_VIDEO);
+	_pCamera = initData.pCam;
+	_pWindow = initData.pWindow;
+	_windowExtent = initData.windowExtent;
+	
+	_windowExtent3D.width = _windowExtent.width;
+	_windowExtent3D.height = _windowExtent.height;
+	_windowExtent3D.depth = 1;
+}
 
-	SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
 
-	_window = SDL_CreateWindow(
-		"Plume",
-		_windowExtent.width,
-		_windowExtent.height,
-		window_flags
-	);
-
+void RenderSystem::init(const RenderSystem::InitData& initData)
+{
+	unpack_init_data(initData);
 	
 	// load core Vulkan structures
 	init_vulkan();
@@ -113,7 +114,7 @@ void RenderSystem::init_vulkan()
 
 	VkSurfaceKHR surfaceC;
 	// get surface of the window we opened with SDL
-	SDL_Vulkan_CreateSurface(_window, _instance, nullptr, &surfaceC);
+	SDL_Vulkan_CreateSurface(_pWindow, _instance, nullptr, &surfaceC);
 	_surface = surfaceC;
 
 	// use VkBootstrap to select a GPU
@@ -198,6 +199,7 @@ void RenderSystem::init_vulkan()
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(_device);
 }
 
+
 void RenderSystem::init_swapchain()
 {
 	vkb::SwapchainBuilder swapchainBuilder{ _chosenGPU, _device, _surface };
@@ -270,6 +272,7 @@ void RenderSystem::init_swapchain()
 	_depthFormat = vk::Format::eD32Sfloat;
 }
 
+
 void RenderSystem::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlags srcAccessMask,
 	vk::AccessFlags dstAccessMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, vk::Image image,
 	vk::ImageAspectFlags aspectMask, vk::PipelineStageFlags srcStageMask, vk::PipelineStageFlags dstStageMask)
@@ -287,6 +290,7 @@ void RenderSystem::image_layout_transition(vk::CommandBuffer cmd, vk::AccessFlag
 
 	cmd.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, transition);
 }
+
 
 void RenderSystem::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool beforeRendering)
 {
@@ -341,6 +345,7 @@ void RenderSystem::switch_intermediate_image_layout(vk::CommandBuffer cmd, bool 
 	}
 }
 
+
 void RenderSystem::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, bool beforeRendering)
 {
 	if (beforeRendering)
@@ -375,6 +380,7 @@ void RenderSystem::switch_swapchain_image_layout(vk::CommandBuffer cmd, uint32_t
 	}
 }
 
+
 void RenderSystem::switch_frame_image_layout(vk::Image image, vk::CommandBuffer cmd)
 {
 	vk::ImageMemoryBarrier transferToWritable;
@@ -391,6 +397,7 @@ void RenderSystem::switch_frame_image_layout(vk::Image image, vk::CommandBuffer 
 		{}, {}, {}, transferToWritable);
 }
 
+
 void RenderSystem::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
 	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
 {
@@ -405,6 +412,7 @@ void RenderSystem::memory_barrier(vk::CommandBuffer cmd, vk::AccessFlags2 srcMas
 
 	cmd.pipelineBarrier2(depInfo);
 }
+
 
 void RenderSystem::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffer, vk::AccessFlags2 srcMask, vk::AccessFlags2 dstMask,
 	vk::PipelineStageFlags2 srcStage, vk::PipelineStageFlags2 dstStage)
@@ -423,10 +431,12 @@ void RenderSystem::buffer_memory_barrier(vk::CommandBuffer cmd, vk::Buffer buffe
 	cmd.pipelineBarrier2(depInfo);
 }
 
+
 FrameData& RenderSystem::get_current_frame()
 {
 	return _frames[_frameNumber % FRAME_OVERLAP];
 }
+
 
 void RenderSystem::init_commands()
 {
@@ -461,6 +471,7 @@ void RenderSystem::init_commands()
 		});
 	}
 }
+
 
 void RenderSystem::init_gbuffer_attachments()
 {
@@ -593,6 +604,7 @@ void RenderSystem::init_gbuffer_attachments()
 	});
 }
 
+
 void RenderSystem::create_attachment(vk::Format format, vk::ImageUsageFlagBits usage, vk::RenderingAttachmentInfo& attachmentInfo,
 	vk::Image* image, vk::ImageView* imageView)
 {
@@ -654,17 +666,20 @@ void RenderSystem::create_attachment(vk::Format format, vk::ImageUsageFlagBits u
 	});
 }
 
+
 void RenderSystem::init_prepass_attachments()
 {
 	create_attachment(_motionVectorFormat, vk::ImageUsageFlagBits::eColorAttachment, _motionVectorAttachment,
 		&_motionVectorImage, &_motionVectorImageView);
 }
 
+
 void RenderSystem::init_raytracing()
 {
 	_gpuProperties.pNext = &_rtProperties;
 	_chosenGPU.getProperties2(&_gpuProperties);
 }
+
 
 void RenderSystem::init_sync_structures()
 {
@@ -697,6 +712,7 @@ void RenderSystem::init_sync_structures()
 		});
 	}
 }
+
 
 void RenderSystem::init_descriptors()
 {
@@ -786,6 +802,7 @@ void RenderSystem::init_descriptors()
 		vk::ShaderStageFlagBits::eFragment, postprocessInfos, 0, 1, false, true);
 
 }
+
 
 void RenderSystem::init_pipelines()
 {
@@ -1159,6 +1176,7 @@ void RenderSystem::init_pipelines()
 	});
 }
 
+
 void RenderSystem::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd)
 {
 	vk::CommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
@@ -1178,6 +1196,7 @@ void RenderSystem::immediate_submit(std::function<void(vk::CommandBuffer cmd)>&&
 	
 	_device.resetCommandPool(_uploadContext._commandPool);
 }
+
 
 void RenderSystem::load_meshes()
 {
@@ -1215,6 +1234,7 @@ void RenderSystem::load_meshes()
 	_scene._models["cube"] = cube;
 }
 
+
 void RenderSystem::init_blas()
 {
 	std::vector<BLASInput> blasInputs;
@@ -1226,6 +1246,7 @@ void RenderSystem::init_blas()
 
 	RenderRT::buildBlas(this, blasInputs);
 }
+
 
 void RenderSystem::init_tlas()
 {
@@ -1252,6 +1273,7 @@ void RenderSystem::init_tlas()
 	_descMng.register_accel_structure(Render::RegisteredDescriptorSet::eRTXGeneral, vk::ShaderStageFlagBits::eRaygenKHR |
 		vk::ShaderStageFlagBits::eClosestHitKHR, _topLevelAS._structure, 0);
 }
+
 
 void RenderSystem::init_rt_descriptors()
 {
@@ -1302,6 +1324,7 @@ void RenderSystem::init_rt_descriptors()
 		_device.destroySampler(frameSampler);
 	});
 }
+
 
 void RenderSystem::init_rt_pipeline()
 {
@@ -1469,6 +1492,7 @@ void RenderSystem::init_rt_pipeline()
 	}
 }
 
+
 void RenderSystem::init_shader_binding_table()
 {
 	uint32_t rmissCount = 2;
@@ -1541,6 +1565,7 @@ void RenderSystem::init_shader_binding_table()
 	});
 }
 
+
 void RenderSystem::init_ui()
 {
 	vk::DescriptorPoolSize poolSizes[] = { { vk::DescriptorType::eSampler, 1000 },
@@ -1564,7 +1589,7 @@ void RenderSystem::init_ui()
 
 	ImGui::CreateContext();
 
-	ImGui_ImplSDL3_InitForVulkan(_window);
+	ImGui_ImplSDL3_InitForVulkan(_pWindow);
 
 	ImGui_ImplVulkan_InitInfo initInfo = {};
 	initInfo.Instance = _instance;
@@ -1615,6 +1640,7 @@ bool RenderSystem::load_material_texture(Texture& tex, const std::string& texNam
 	return true;
 }
 
+
 void RenderSystem::load_skybox(Texture& skybox, const std::string& directory)
 {
 	std::vector<std::string> files = {
@@ -1630,6 +1656,7 @@ void RenderSystem::load_skybox(Texture& skybox, const std::string& directory)
 
 	RenderUtil::load_cubemap_from_files(this, files, skybox.image);
 }
+
 
 void RenderSystem::load_images()
 {
@@ -1818,20 +1845,26 @@ void RenderSystem::load_images()
 	});
 }
 
+
 void RenderSystem::reset_frame()
 {
 	_rayConstants.frame = -1;
 }
 
+
 void RenderSystem::update_frame()
 {
+	assert(_pCamera);
+
+	const PlumeCamera& camera = *_pCamera;
+
 	static glm::mat4 refCamMatrix = {};
-	static float refFov = _camera._zoom;
+	static float refFov = camera._zoom;
 	static glm::vec3 refPosition{ 0.0f };
 
-	const glm::mat4 m = _camera.get_view_matrix();
-	const float fov = _camera._zoom;
-	const glm::vec3 position = _camera._position;
+	const glm::mat4 m = camera.get_view_matrix();
+	const float fov = camera._zoom;
+	const glm::vec3 position = camera._position;
 
 	if (std::memcmp(&refCamMatrix[0][0], &m[0][0], sizeof(glm::mat4)) != 0 || refFov != fov ||
 		std::memcmp(&refPosition[0], &position[0], sizeof(glm::vec3)) != 0)
@@ -1846,6 +1879,7 @@ void RenderSystem::update_frame()
 	}
 	++_rayConstants.frame;
 }
+
 
 void RenderSystem::update_buffer_memory(const float* sourceData, size_t bufferSize,
 	AllocatedBuffer& targetBuffer, vk::CommandBuffer* cmd, AllocatedBuffer* stagingBuffer/* = nullptr*/)
@@ -1867,6 +1901,7 @@ void RenderSystem::update_buffer_memory(const float* sourceData, size_t bufferSi
 		cmd->copyBuffer(stagingBuffer->_buffer, targetBuffer._buffer, bufCopy);
 	}
 }
+
 
 void RenderSystem::init_scene()
 {
@@ -1934,6 +1969,7 @@ void RenderSystem::init_scene()
 	_sceneParameters.pointLights[2] = backLight;
 }
 
+
 void RenderSystem::upload_mesh(Mesh& mesh)
 {
 	vk::BufferUsageFlags vertexBufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
@@ -1956,25 +1992,29 @@ void RenderSystem::upload_mesh(Mesh& mesh)
 	});
 }
 
+
 void RenderSystem::cleanup()
 {
-	if (_isInitialized) {
-		--_frameNumber;
-		VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
-		++_frameNumber;
-
-		_mainDeletionQueue.flush();
-
-		vmaDestroyAllocator(_allocator);
-		_device.destroy();
-		_instance.destroySurfaceKHR(_surface);
-		vkb::destroy_debug_utils_messenger(_instance, _debug_messenger);
-		_instance.destroy();
-		SDL_DestroyWindow(_window);
+	if (!_isInitialized)
+	{
+		return;
 	}
+
+	--_frameNumber;
+	VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
+	++_frameNumber;
+
+	_mainDeletionQueue.flush();
+
+	vmaDestroyAllocator(_allocator);
+	_device.destroy();
+	_instance.destroySurfaceKHR(_surface);
+	vkb::destroy_debug_utils_messenger(_instance, _debug_messenger);
+	_instance.destroy();
 }
 
-void RenderSystem::draw()
+
+void RenderSystem::render_frame()
 {
 	// wait until the GPU has finished rendering the last frame, with timeout of 1 second
 	VK_CHECK(_device.waitForFences(get_current_frame()._renderFence, true, 1000000000));
@@ -2181,9 +2221,9 @@ void RenderSystem::draw()
 		cmd.endRendering();
 	}
 
-	if (_showImgui)
+	if (_showDebugUi)
 	{
-		draw_ui(cmd, _swapchainImageViews[swapchainImageIndex]);
+		draw_debug_ui(cmd, _swapchainImageViews[swapchainImageIndex]);
 	}
 
 	// ======================================== END RENDERING ========================================
@@ -2195,7 +2235,7 @@ void RenderSystem::draw()
 	// stop recording to command buffer (we can no longer add commands, but it can now be submitted and executed)
 	cmd.end();
 
-	_prevCamera = _camera;
+	_prevCamera = *_pCamera;
 
 	// prepare the vk::Queue submission
 	// wait for the present semaphore to present image
@@ -2236,6 +2276,7 @@ void RenderSystem::draw()
 	++_frameNumber;
 }
 
+
 size_t RenderSystem::pad_uniform_buffer_size(size_t originalSize)
 {
 	// calculate alignment based on min device offset alignment
@@ -2248,6 +2289,7 @@ size_t RenderSystem::pad_uniform_buffer_size(size_t originalSize)
 	return alignedSize;
 }
 
+
 vk::DeviceSize RenderSystem::align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment)
 {
 	vk::DeviceSize alignedSize = originalSize;
@@ -2257,6 +2299,7 @@ vk::DeviceSize RenderSystem::align_up(vk::DeviceSize originalSize, vk::DeviceSiz
 	}
 	return alignedSize;
 }
+
 
 AllocatedBuffer RenderSystem::create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
 	VmaAllocationCreateFlags flags/* = 0 */, vk::MemoryPropertyFlags reqFlags/* = {}*/)
@@ -2281,6 +2324,7 @@ AllocatedBuffer RenderSystem::create_buffer(size_t allocSize, vk::BufferUsageFla
 	return newBuffer;
 }
 
+
 AllocatedImage RenderSystem::create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage)
 {
 	AllocatedImage newImage;
@@ -2299,6 +2343,7 @@ AllocatedImage RenderSystem::create_image(const vk::ImageCreateInfo& createInfo,
 	return newImage;
 }
 
+
 void RenderSystem::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
 	vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent)
 {
@@ -2315,12 +2360,14 @@ void RenderSystem::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspect
 	cmd.copyImage(srcImage, srcImageLayout, dstImage, dstImageLayout, copyInfo);
 }
 
+
 vk::DeviceAddress RenderSystem::get_buffer_device_address(vk::Buffer buffer)
 {
 	vk::BufferDeviceAddressInfo bufferAddressInfo;
 	bufferAddressInfo.setBuffer(buffer);
 	return _device.getBufferAddress(bufferAddressInfo);
 }
+
 
 BLASInput RenderSystem::convert_to_blas_input(Mesh& mesh)
 {
@@ -2353,6 +2400,7 @@ BLASInput RenderSystem::convert_to_blas_input(Mesh& mesh)
 	return blasInput;
 }
 
+
 MaterialSet* RenderSystem::create_material_set(vk::Pipeline pipeline, vk::PipelineLayout layout, PipelineType pipelineType,
 	Render::DescriptorSetFlags descSetFlags)
 {
@@ -2367,12 +2415,14 @@ MaterialSet* RenderSystem::create_material_set(vk::Pipeline pipeline, vk::Pipeli
 	return &(_materialSets[setId]);
 }
 
+
 MaterialSet* RenderSystem::get_material_set(PipelineType pipelineType)
 {
 	auto setId = static_cast<size_t>(pipelineType);
 
 	return &(_materialSets[setId]);
 }
+
 
 Model* RenderSystem::get_model(const std::string& name)
 {
@@ -2387,11 +2437,16 @@ Model* RenderSystem::get_model(const std::string& name)
 	}
 }
 
+
 void RenderSystem::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
-	glm::mat4 view = _camera.get_view_matrix();
+	assert(_pCamera);
 
-	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
+	const PlumeCamera& camera = *_pCamera;
+
+	const glm::mat4 view = camera.get_view_matrix();
+
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -2450,11 +2505,14 @@ void RenderSystem::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 	vmaUnmapMemory(_allocator, get_current_frame()._objectBuffer._allocation);
 }
 
+
 void RenderSystem::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
-	glm::mat4 view = _camera.get_view_matrix();
+	const PlumeCamera& camera = *_pCamera;
 
-	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
+	glm::mat4 view = camera.get_view_matrix();
+
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -2504,6 +2562,7 @@ void RenderSystem::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 	}
 }
 
+
 void RenderSystem::draw_lighting_pass(vk::CommandBuffer cmd)
 {
 	MaterialSet* lightingMatSet = get_material_set(PipelineType::eLightingPass);
@@ -2525,6 +2584,7 @@ void RenderSystem::draw_lighting_pass(vk::CommandBuffer cmd)
 
 	cmd.draw(3, 1, 0, 0);
 }
+
 
 void RenderSystem::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType)
 {
@@ -2568,11 +2628,14 @@ void RenderSystem::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipeline
 	cmd.draw(3, 1, 0, 0);
 }
 
+
 void RenderSystem::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 {
-	glm::mat4 view = _camera.get_view_matrix();
+	const PlumeCamera& camera = *_pCamera;
 
-	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_camera._zoom),
+	glm::mat4 view = camera.get_view_matrix();
+
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(camera._zoom),
 		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
 	projection[1][1] *= -1;
 
@@ -2614,7 +2677,8 @@ void RenderSystem::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	cmd.drawIndexed(static_cast<uint32_t>(object.mesh->_indices.size()), 1, 0, 0, 0);
 }
 
-void RenderSystem::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
+
+void RenderSystem::draw_debug_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 {
 	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::rendering_attachment_info(targetImageView,
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, {});
@@ -2630,6 +2694,7 @@ void RenderSystem::draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 
 	cmd.endRendering();
 }
+
 
 void RenderSystem::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex)
 {
@@ -2667,186 +2732,42 @@ void RenderSystem::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 	cmd.traceRaysKHR(_rgenRegion, _rmissRegion, _rchitRegion, _rcallRegion, _windowExtent.width, _windowExtent.height, 1);
 }
 
-void RenderSystem::on_mouse_motion_callback()
+
+void RenderSystem::setup_debug_ui_frame()
 {
-	float outRelX = 0;
-	float outRelY = 0;
-
-	SDL_GetRelativeMouseState(&outRelX, &outRelY);
-
-	float xOffset = outRelX;
-	float yOffset = -outRelY;
-
-	_camera.process_camera_movement(xOffset, yOffset);
-}
-
-void RenderSystem::on_mouse_scroll_callback(float yOffset)
-{
-	_camera.process_mouse_scroll(yOffset);
-}
-
-void RenderSystem::on_keyboard_event_callback(SDL_Keycode sym)
-{
-	switch (sym)
+	if (!_showDebugUi)
 	{
-	case SDLK_LSHIFT:
-		_camera.process_keyboard(CameraMovement::UP, _deltaTime);
-		break;
-	case SDLK_LCTRL:
-		_camera.process_keyboard(CameraMovement::DOWN, _deltaTime);
-		break;
-	case SDLK_w:
-		_camera.process_keyboard(CameraMovement::FORWARD, _deltaTime);
-		break;
-	case SDLK_s:
-		_camera.process_keyboard(CameraMovement::BACKWARD, _deltaTime);
-		break;
-	case SDLK_a:
-		_camera.process_keyboard(CameraMovement::LEFT, _deltaTime);
-		break;
-	case SDLK_d:
-		_camera.process_keyboard(CameraMovement::RIGHT, _deltaTime);
-		break;
-	case SDLK_RSHIFT:
-		_centralLightPos.y += _camSpeed;
-		break;
-	case SDLK_RCTRL:
-		_centralLightPos.y -= _camSpeed;
-		break;
-	case SDLK_UP:
-		_centralLightPos.z -= _camSpeed;
-		break;
-	case SDLK_DOWN:
-		_centralLightPos.z += _camSpeed;
-		break;
-	case SDLK_LEFT:
-		_centralLightPos.x -= _camSpeed;
-		break;
-	case SDLK_RIGHT:
-		_centralLightPos.x += _camSpeed;
-		break;
-	default:
-		break;
+		return;
 	}
-}
 
-void RenderSystem::run()
-{
-	SDL_Event e;
-	bool bQuit = false;
-	bool keyDown = false;
-	bool mouseMotion = false;
-	bool mouseWheel = false;
-	float scrollY = 0.0f;
-	SDL_Keycode sym = 0;
-	// main loop
-	SDL_SetRelativeMouseMode(SDL_TRUE);
-	while (!bQuit)
+	ImGui_ImplVulkan_NewFrame();
+	ImGui_ImplSDL3_NewFrame();
+	ImGui::NewFrame();
+
+	ImGui::SetNextWindowSize(ImVec2(300, 300));
+	ImGui::Begin("Options");
+	if (_renderMode == RenderMode::ePathTracing)
 	{
-		float curFrameTime = static_cast<float>(SDL_GetTicks() / 1000.0f);
-		_deltaTime = curFrameTime - _lastFrameTime;
-		_lastFrameTime = curFrameTime;
-
-		bool relMode = SDL_GetRelativeMouseMode();
-
-		// Handle events on queue
-		while (SDL_PollEvent(&e) != 0)
+		ImGui::SliderInt("Max Bounces", &_cfg.MAX_BOUNCES, 0, 30);
+		ImGui::Checkbox("Use Denoising", &_cfg.DENOISING);
+		ImGui::Checkbox("Use Temporal Accumulation", &_cfg.TEMPORAL_ACCUMULATION);
+		bool prevMv = _cfg.MOTION_VECTORS;
+		ImGui::Checkbox("Use Motion Vectors", &_cfg.MOTION_VECTORS);
+		if (_cfg.MOTION_VECTORS != prevMv)
 		{
-			// SDL window callback processing
-			switch (e.type)
-			{
-			case SDL_EVENT_QUIT:
-				bQuit = true;
-				break;
-			case SDL_EVENT_MOUSE_MOTION:
-				mouseMotion = true;
-				break;
-			case SDL_EVENT_MOUSE_WHEEL:
-				mouseWheel = true;
-				scrollY = e.wheel.y;
-				break;
-			case SDL_EVENT_KEY_DOWN:
-				sym = e.key.keysym.sym;
-				if (sym == SDLK_F8 || sym == SDLK_F2)
-				{
-					if (sym == SDLK_F2)
-					{
-						_showImgui = !_showImgui;
-					}
-
-					SDL_WarpMouseInWindow(_window, _windowExtent.width / 2.0f, _windowExtent.height / 2.0f);
-					SDL_SetRelativeMouseMode(!relMode);
-					
-					_defocusMode = !_defocusMode;
-					mouseMotion = false;
-				}
-				else if (sym == SDLK_ESCAPE)
-				{
-					bQuit = true;
-					break;
-				}
-				else
-				{
-					keyDown = true;
-				}
-				break;
-			case SDL_EVENT_KEY_UP:
-				keyDown = false;
-				break;
-			default:
-				break;
-			}
-
-			ImGui_ImplSDL3_ProcessEvent(&e);
+			reset_frame();
 		}
-
-		if (mouseMotion && !_defocusMode)
-		{
-			on_mouse_motion_callback();
-		}
-		if (mouseWheel && !_defocusMode)
-		{
-			on_mouse_scroll_callback(scrollY);
-			scrollY = 0.0f;
-		}
-		if (keyDown && !_defocusMode)
-		{
-			on_keyboard_event_callback(sym);
-		}
-
-		if (_showImgui)
-		{
-			ImGui_ImplVulkan_NewFrame();
-			ImGui_ImplSDL3_NewFrame();
-			ImGui::NewFrame();
-
-			ImGui::SetNextWindowSize(ImVec2(300, 300));
-			ImGui::Begin("Options");
-			if (_renderMode == RenderMode::ePathTracing)
-			{
-				ImGui::SliderInt("Max Bounces", &_cfg.MAX_BOUNCES, 0, 30);
-				ImGui::Checkbox("Use Denoising", &_cfg.DENOISING);
-				ImGui::Checkbox("Use Temporal Accumulation", &_cfg.TEMPORAL_ACCUMULATION);
-				bool prevMv = _cfg.MOTION_VECTORS;
-				ImGui::Checkbox("Use Motion Vectors", &_cfg.MOTION_VECTORS);
-				if (_cfg.MOTION_VECTORS != prevMv)
-				{
-					reset_frame();
-				}
-				ImGui::Checkbox("Use Shader Execution Reordering", &_cfg.SHADER_EXECUTION_REORDERING);
-			}
-			else if (_renderMode == RenderMode::eHybrid)
-			{
-				ImGui::Checkbox("Use FXAA", &_cfg.FXAA);
-			}
-			ImGui::End();
-		
-			ImGui::Render();
-		}
-
-		draw();
+		ImGui::Checkbox("Use Shader Execution Reordering", &_cfg.SHADER_EXECUTION_REORDERING);
 	}
+	else if (_renderMode == RenderMode::eHybrid)
+	{
+		ImGui::Checkbox("Use FXAA", &_cfg.FXAA);
+	}
+	ImGui::End();
+
+	ImGui::Render();
 }
+
 
 bool RenderSystem::load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule)
 {
@@ -2883,6 +2804,7 @@ bool RenderSystem::load_shader_module(const char* filePath, vk::ShaderModule* ou
 	*outShaderModule = shaderModule;
 	return true;
 }
+
 
 vk::Pipeline PipelineBuilder::buildPipeline(vk::Device device)
 {

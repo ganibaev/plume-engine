@@ -8,8 +8,9 @@
 #include <iostream>
 #include <unordered_set>
 
+#include "../engine/plm_camera.h"
+
 #include "render_descriptors.h"
-#include "render_camera.h"
 #include "render_mesh.h"
 
 #include <glm/glm.hpp>
@@ -34,6 +35,7 @@
 		}																		\
 	} while (0)
 
+struct SDL_Window;
 
 class PipelineBuilder {
 public:
@@ -120,36 +122,38 @@ struct ConfigurationVariables
 };
 
 
-class RenderSystem {
+class RenderSystem 
+{
 public:
+	struct InitData
+	{
+		const PlumeCamera* pCam = nullptr;
+
+		SDL_Window* pWindow = nullptr;
+		vk::Extent2D windowExtent{ 0, 0 };
+	};
+
 	bool _isInitialized = false;
 	int _frameNumber = 0;
 
 	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
 
-	constexpr static float _camSpeed = 0.2f;
+	SDL_Window* _pWindow = nullptr;
+	vk::Extent2D _windowExtent{ 0, 0 };
+	vk::Extent3D _windowExtent3D{ 0, 0, 0 };
 
-	vk::Extent2D _windowExtent{ 1920, 1080};
+	void unpack_init_data(const RenderSystem::InitData& initData);
 
-	vk::Extent3D _windowExtent3D{ _windowExtent, 1 };
+	// initializes everything in the rendering system
+	void init(const RenderSystem::InitData& initData);
 
-	struct SDL_Window* _window{ nullptr };
-
-	// initializes everything in the engine
-	void init();
-
-	// shuts down the engine
+	// shuts down the rendering system
 	void cleanup();
 
 	// draw loop
-	void draw();
+	void render_frame();
 
-	// run main loop
-	void run();
-
-	void on_mouse_motion_callback();
-	void on_mouse_scroll_callback(float yOffset);
-	void on_keyboard_event_callback(SDL_Keycode sym);
+	void setup_debug_ui_frame();
 
 	VmaAllocator _allocator;
 
@@ -172,16 +176,14 @@ public:
 
 	Scene _scene;
 
-	Camera _camera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
-	Camera _prevCamera = Camera(glm::vec3(2.8f, 6.0f, 40.0f));
-	float _deltaTime = 0.0f;
-	float _lastFrameTime = 0.0f;
+	const PlumeCamera* _pCamera = nullptr;
+	PlumeCamera _prevCamera = PlumeCamera(glm::vec3(2.8f, 6.0f, 40.0f));
+
 	glm::mat4 _prevViewProj = glm::identity<glm::mat4>();
 
 	glm::vec3 _centralLightPos = { 2.8f, 20.0f, 17.5f };
 
-	bool _defocusMode = false;
-	bool _showImgui = false;
+	bool _showDebugUi = false;
 
 	SceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;
@@ -299,7 +301,7 @@ public:
 	void draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipelineType);
 	void draw_skybox(vk::CommandBuffer cmd, RenderObject& object);
 
-	void draw_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView);
+	void draw_debug_ui(vk::CommandBuffer cmd, vk::ImageView targetImageView);
 
 	void trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex);
 

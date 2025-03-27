@@ -1,6 +1,10 @@
-#include "render_camera.h"
+#include "plm_camera.h"
 
-void Camera::process_keyboard(CameraMovement direction, float timeDelta)
+#include <SDL.h>
+#include <SDL_vulkan.h>
+
+
+void PlumeCamera::process_movement(CameraMovement direction, float timeDelta)
 {
 	float velocity = _movementSpeed * timeDelta;
 	switch (direction)
@@ -28,7 +32,8 @@ void Camera::process_keyboard(CameraMovement direction, float timeDelta)
 	}
 }
 
-void Camera::process_camera_movement(float xOffset, float yOffset, bool constrainPitch /* = true */)
+
+void PlumeCamera::process_camera_motion(float xOffset, float yOffset, bool constrainPitch /* = true */)
 {
 	xOffset *= _mouseSensitivity;
 	yOffset *= _mouseSensitivity;
@@ -44,13 +49,15 @@ void Camera::process_camera_movement(float xOffset, float yOffset, bool constrai
 	update_camera_vectors();
 }
 
-void Camera::process_mouse_scroll(float yOffset)
+
+void PlumeCamera::process_mouse_scroll(float yOffset)
 {
 	_zoom -= yOffset * 2;
 	_zoom = glm::clamp(_zoom, 1.0f, 70.0f);
 }
 
-void Camera::update_camera_vectors()
+
+void PlumeCamera::update_camera_vectors()
 {
 	glm::vec3 front = {};
 	front.x = cos(glm::radians(_yaw)) * cos(glm::radians(_pitch));
