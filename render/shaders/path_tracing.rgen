@@ -21,7 +21,7 @@ layout (set = ePerFrame, binding = 4) uniform sampler2D prevPositions;
 
 layout (set = eGlobal, binding = 0) uniform CameraBuffer
 {
-	CameraData camData;
+	CameraDataGPU camData;
 } camSceneData;
 
 layout (set = eObjectData, binding = 0, scalar) readonly buffer ObjectBuffer

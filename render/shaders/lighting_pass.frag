@@ -2,57 +2,21 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_ray_tracing : enable
 #extension GL_EXT_ray_query : enable
-#extension GL_GOOGLE_include_directive : enable
 
+#include "common.glsl"
 #include "bsdf.glsl"
+#include "host_device_common.h"
 
 #define TLAS_SLOT 0U
 
-#ifndef PI
-#define PI 3.1415926535897932384626433832795
-#endif
-
 layout (location = 0) in vec2 inTexCoords;
-
 layout (location = 0) out vec4 outFragColor;
 
-layout (constant_id = 0) const uint NUM_LIGHTS = 3;
-
-struct CameraData
+layout (set = 1, binding = 0) uniform LightingPassBuffer
 {
-	mat4 view;
-	mat4 invView;
-	mat4 proj;
-	mat4 viewproj;
-	mat4 pad[3];
+	CameraDataGPU camera;
+	LightingData lighting;
 };
-
-struct SceneData
-{
-	vec4 fogColor; // w for exponent
-	vec4 fogDistances; // x -- min, y -- max
-	vec4 ambientLight;
-};
-
-struct DirectionalLight
-{
-	vec4 direction; // w for sun power
-	vec4 color;
-};
-
-struct PointLight
-{
-	vec4 position;
-	vec4 color;
-};
-
-layout (set = 1, binding = 0) uniform CameraBuffer
-{
-	CameraData camData;
-	SceneData sceneData;
-	DirectionalLight dirLight;
-	PointLight pointLights[NUM_LIGHTS];
-} camSceneBuffer;
 
 layout (set = 0, binding = 0) uniform sampler2D positionTex;
 layout (set = 0, binding = 1) uniform sampler2D normalTex;
@@ -100,14 +64,17 @@ void main()
 	float roughness = roughnessMetallic.g;
 	float metallic = roughnessMetallic.b;
 
-	vec3 camPosWorld = camSceneBuffer.camData.invView[3].xyz;
+	DirectionalLightGPU dirLight = lighting.dirLight;
+	PointLightGPU pointLights[MAX_POINT_LIGHTS_PER_FRAME] = lighting.pointLights;
+
+	vec3 camPosWorld = camera.invView[3].xyz;
 	vec3 viewDirection = normalize(camPosWorld - fragPosWorld);
 
 	// ambient
-	vec3 ambientLight = camSceneBuffer.sceneData.ambientLight.rgb * camSceneBuffer.sceneData.ambientLight.a;
+	vec3 ambientLight = lighting.ambientLight.rgb * lighting.ambientLight.a;
 
 	// directional light
-	vec3 dirToLightDir = normalize(-camSceneBuffer.dirLight.direction.xyz);
+	vec3 dirToLightDir = normalize(-dirLight.direction.xyz);
 
 	vec3 N = normalize(surfaceNormal);
 	vec3 V = viewDirection;
@@ -116,7 +83,7 @@ void main()
 
 	vec3 Lo = vec3(0.0);
 
-	vec3 dirRadiance = camSceneBuffer.dirLight.color.rgb * camSceneBuffer.dirLight.direction.w;
+	vec3 dirRadiance = dirLight.color.rgb * dirLight.color.a;
 
 	vec3 dirContrib = BRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial) * dirDotNL * dirRadiance;
 
@@ -127,18 +94,18 @@ void main()
 
 	Lo += dirContrib;
 	
-	for (int i = 0; i < NUM_LIGHTS; ++i)
+	for (int i = 0; i < MAX_POINT_LIGHTS_PER_FRAME; ++i)
 	{
-		if (camSceneBuffer.pointLights[i].color.w < 0.01)
+		if (pointLights[i].color.w < 0.01)
 		{
 			continue;
 		}
 
-		vec3 dirToLight = camSceneBuffer.pointLights[i].position.xyz - fragPosWorld;
+		vec3 dirToLight = pointLights[i].position.xyz - fragPosWorld;
 		vec3 L = normalize(dirToLight);
 		float distancePoint = length(dirToLight);
 		float attenuation = 1.0 / dot(dirToLight, dirToLight);
-		vec3 radiance = camSceneBuffer.pointLights[i].color.rgb * camSceneBuffer.pointLights[i].color.a * attenuation;
+		vec3 radiance = pointLights[i].color.rgb * pointLights[i].color.a * attenuation;
 		float pointDotNL = clamp(dot(N, L), 0.0, 1.0);
 
 		vec3 contrib = BRDF(L, V, N, metallic, roughness, diffuseMaterial) * pointDotNL * radiance;

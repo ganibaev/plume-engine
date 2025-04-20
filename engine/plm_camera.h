@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <array>
+#include "shaders/host_device_common.h"
+
 
 enum class CameraMovement
 {
@@ -21,6 +23,9 @@ constexpr float PITCH = 0.0f;
 constexpr float SPEED = 20.0f;
 constexpr float SENSITIVITY = 0.1f;
 constexpr float ZOOM = 70.0f;
+
+constexpr float DRAW_DISTANCE = 6000.0f;
+
 
 class PlumeCamera
 {
@@ -67,6 +72,8 @@ public:
 
 	bool is_movement_active(CameraMovement movement) const { return _activeMovements[static_cast<size_t>(movement)]; }
 	void set_movement_status(CameraMovement movement, bool isActive) { _activeMovements[static_cast<size_t>(movement)] = isActive; }
+
+	CameraDataGPU make_gpu_camera_data(const PlumeCamera& lastFrameCamera, WindowExtent windowExtent) const;
 private:
 	std::array<bool, static_cast<size_t>(CameraMovement::MAX_ENUM)> _activeMovements = { false };
 

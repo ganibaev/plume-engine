@@ -3,6 +3,7 @@
 #include "render_initializers.h"
 
 #include "render_textures.h"
+#include "render_lights.h"
 #include "render_raytracing.h"
 
 // This will make initialization much less of a pain
@@ -33,6 +34,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 void RenderSystem::unpack_init_data(const RenderSystem::InitData& initData)
 {
 	_pCamera = initData.pCam;
+	_pLightManager = initData.pLightManager;
+
 	_pWindow = initData.pWindow;
 	_windowExtent = initData.windowExtent;
 	
@@ -716,7 +719,7 @@ void RenderSystem::init_sync_structures()
 
 void RenderSystem::init_descriptors()
 {
-	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(CameraData) + sizeof(SceneData));
+	const size_t camSceneParamBufferSize = FRAME_OVERLAP * pad_uniform_buffer_size(sizeof(CameraDataGPU) + sizeof(LightingData));
 
 	_camSceneBuffer = create_buffer(camSceneParamBufferSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -724,7 +727,7 @@ void RenderSystem::init_descriptors()
 	camSceneBufferInfo.buffer = _camSceneBuffer._buffer;
 	camSceneBufferInfo.bufferType = vk::DescriptorType::eUniformBufferDynamic;
 	camSceneBufferInfo.offset = 0;
-	camSceneBufferInfo.range = sizeof(CameraData) + sizeof(SceneData);
+	camSceneBufferInfo.range = sizeof(CameraDataGPU) + sizeof(LightingData);
 
 	_descMng.register_buffer(Render::RegisteredDescriptorSet::eGlobal, vk::ShaderStageFlagBits::eVertex |
 		vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR,
@@ -885,22 +888,6 @@ void RenderSystem::init_pipelines()
 
 	pipelineBuilder._vertexInputInfo.setVertexBindingDescriptions(vertexDescription.bindings);
 
-	// specialization constants for arrays in shaders
-
-	std::array<uint32_t, 1> specCostants = {
-		NUM_LIGHTS
-	};
-
-	vk::SpecializationMapEntry specConstantEntries[1];
-	specConstantEntries[0].setConstantID(0);
-	specConstantEntries[0].setSize(sizeof(specCostants));
-	specConstantEntries[0].setOffset(0);
-
-	vk::SpecializationInfo specInfo;
-	specInfo.setMapEntries(specConstantEntries);
-	specInfo.setDataSize(sizeof(specCostants));
-	specInfo.setPData(specCostants.data());
-
 	pipelineBuilder._pipelineLayout = texturedPipelineLayout;
 	
 	// init geometry pass pipeline
@@ -982,8 +969,6 @@ void RenderSystem::init_pipelines()
 		lightingPassVertexShader));
 	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
 		lightingPassFragmentShader));
-
-	pipelineBuilder._shaderStages[1].setPSpecializationInfo(&specInfo);
 
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
@@ -1946,27 +1931,6 @@ void RenderSystem::init_scene()
 	//glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
 	//glm::mat4 meshRotate = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	_skyboxObject.transformMatrix = meshScale;
-
-	_sceneParameters.dirLight.direction = glm::vec4(glm::normalize(glm::vec3(0.0f, -30.0f, -10.0f)), 1.0f);
-	_sceneParameters.dirLight.color = glm::vec4{ 253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f, 1.0f };
-	_sceneParameters.ambientLight = { 1.0f, 1.0f, 1.0f, 0.1f };
-
-	PointLight centralLight = {};
-	centralLight.position = glm::vec4{ _centralLightPos, 0.0f };
-	centralLight.color = glm::vec4{ 253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f, 300.0f };
-	_sceneParameters.pointLights[0] = centralLight;
-
-	// turning front and back lights off (w = 0.0) to better highlight central and directional light,
-	// but keeping the possibility to turn it on if needed
-	PointLight frontLight = {};
-	frontLight.position = glm::vec4{ 2.8f, 3.0f, -5.0f, 0.0f };
-	frontLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 0.0f };
-
-	PointLight backLight = {};
-	backLight.position = glm::vec4{ 2.8f, 3.0f, 28.0f, 0.0f };
-	backLight.color = glm::vec4{ 1.0f, 1.0f, 1.0f, 0.0f };
-	_sceneParameters.pointLights[1] = frontLight;
-	_sceneParameters.pointLights[2] = backLight;
 }
 
 
@@ -2441,31 +2405,10 @@ Model* RenderSystem::get_model(const std::string& name)
 void RenderSystem::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* first, size_t count)
 {
 	assert(_pCamera);
+	assert(_pLightManager);
 
 	const PlumeCamera& camera = *_pCamera;
-
-	const glm::mat4 view = camera.get_view_matrix();
-
-	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(camera._zoom),
-		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
-	projection[1][1] *= -1;
-
-	CameraData camData = {};
-	camData.view = view;
-	camData.invView = glm::inverse(view);
-	camData.proj = projection;
-	camData.viewproj = projection * view;
-	camData.invProj = glm::inverse(projection);
-	camData.invViewProj = glm::inverse(camData.viewproj);
-
-	glm::mat4 prevView = _prevCamera.get_view_matrix();
-	glm::mat4 prevProjection = glm::perspectiveRH_ZO(glm::radians(_prevCamera._zoom),
-		_windowExtent.width / static_cast<float>(_windowExtent.height), 0.1f, DRAW_DISTANCE);
-	prevProjection[1][1] *= -1;
-
-	camData.prevViewProj = prevProjection * prevView;
-
-	_sceneParameters.pointLights[0].position = glm::vec4{ _centralLightPos, 0.0f };
+	CameraDataGPU camDataGpu = camera.make_gpu_camera_data(_prevCamera, { _windowExtent.width, _windowExtent.height });
 
 	char* data;
 
@@ -2473,10 +2416,12 @@ void RenderSystem::upload_cam_scene_data(vk::CommandBuffer cmd, RenderObject* fi
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
 
-	data += pad_uniform_buffer_size(sizeof(CameraData) + sizeof(SceneData)) * frameIndex;
-	memcpy(data, &camData, sizeof(CameraData));
-	data += sizeof(CameraData);
-	memcpy(data, &_sceneParameters, sizeof(SceneData));
+	data += pad_uniform_buffer_size(sizeof(CameraDataGPU) + sizeof(LightingData)) * frameIndex;
+	memcpy(data, &camDataGpu, sizeof(CameraDataGPU));
+	data += sizeof(CameraDataGPU);
+
+	LightingData lightingData = Render::LightManager::make_lighting_data(_pLightManager->GetLights());
+	memcpy(data, &lightingData, sizeof(LightingData));
 
 	vmaUnmapMemory(_allocator, _camSceneBuffer._allocation);
 
@@ -2536,8 +2481,8 @@ void RenderSystem::draw_objects(vk::CommandBuffer cmd, RenderObject* first, size
 			lastMaterialSet = object.materialSet;
 
 			// scene & camera descriptor
-			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
-				sizeof(SceneData)) * frameIndex);
+			uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraDataGPU) +
+				sizeof(LightingData)) * frameIndex);
 
 			Render::DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
@@ -2572,8 +2517,8 @@ void RenderSystem::draw_lighting_pass(vk::CommandBuffer cmd)
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, lightingMatSet->pipeline);
 
 	// scene & camera descriptor set
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
-		sizeof(SceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraDataGPU) +
+		sizeof(LightingData)) * frameIndex);
 
 	Render::DescriptorSetFlags lightingDescFlags = lightingMatSet->usedDescriptorSets;
 
@@ -2593,8 +2538,8 @@ void RenderSystem::draw_screen_quad(vk::CommandBuffer cmd, PipelineType pipeline
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, screenQuadMaterial->pipeline);
 
 	int frameIndex = _frameNumber % FRAME_OVERLAP;
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
-		sizeof(SceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraDataGPU) +
+		sizeof(LightingData)) * frameIndex);
 
 	Render::DescriptorSetFlags quadDescFlags = screenQuadMaterial->usedDescriptorSets;
 
@@ -2649,8 +2594,8 @@ void RenderSystem::draw_skybox(vk::CommandBuffer cmd, RenderObject& object)
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, object.materialSet->pipeline);
 
 	// scene & camera descriptor
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
-		sizeof(SceneData)) * frameIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraDataGPU) +
+		sizeof(LightingData)) * frameIndex);
 
 	Render::DescriptorSetFlags descFlags = object.materialSet->usedDescriptorSets;
 
@@ -2714,8 +2659,8 @@ void RenderSystem::trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageInde
 
 	cmd.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipeline);
 
-	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraData) +
-		sizeof(SceneData)) * swapchainImageIndex);
+	uint32_t uniformOffset = static_cast<uint32_t>(pad_uniform_buffer_size(sizeof(CameraDataGPU) +
+		sizeof(LightingData)) * swapchainImageIndex);
 
 	cmd.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, rtMaterial->pipelineLayout,
 		0, rtSets, uniformOffset);

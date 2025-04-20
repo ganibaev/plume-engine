@@ -1,7 +1,10 @@
-#ifndef HOST_DEVICE_COMMON
+#if !defined(HOST_DEVICE_COMMON)
 #define HOST_DEVICE_COMMON
 
+
 #ifdef __cplusplus
+	#include "glm/glm.hpp"
+
 	using mat4 = glm::mat4;
 	using vec4 = glm::vec4;
 	using vec3 = glm::vec3;
@@ -11,10 +14,15 @@
 	#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
 #endif
 
-// Temporarily hardcoded
-const uint32_t NUM_LIGHTS = 3;
+const uint32_t MAX_POINT_LIGHTS_PER_FRAME = 3;
 
-struct CameraData
+struct WindowExtent
+{
+	uint32_t width;
+	uint32_t height;
+};
+
+struct CameraDataGPU
 {
 	mat4 view;
 	mat4 invView;
@@ -25,26 +33,24 @@ struct CameraData
 	mat4 prevViewProj;
 };
 
-struct DirectionalLight
+struct DirectionalLightGPU
 {
-	vec4 direction; // w for sun power
-	vec4 color;
+	vec4 direction;
+	vec4 color; // a for intensity
 };
 
-struct PointLight
+struct PointLightGPU
 {
 	vec4 position;
-	vec4 color;
+	vec4 color; // a for intensity
 };
 
-struct SceneData
+struct LightingData
 {
-	vec4 fogColor; // w for exponent
-	vec4 fogDistances; // x -- min, y -- max
 	vec4 ambientLight;
 
-	DirectionalLight dirLight;
-	PointLight pointLights[NUM_LIGHTS];
+	DirectionalLightGPU dirLight;
+	PointLightGPU pointLights[MAX_POINT_LIGHTS_PER_FRAME];
 };
 
 struct ObjectData

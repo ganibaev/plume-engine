@@ -11,7 +11,7 @@ class PlumeRender
 public:
 	void init(RenderSystem::InitData& initData);
 
-	void process_input_events(const std::array<PlumeInputs::Event, PlumeInputs::MAX_FRAME_EVENT_NUM>& queue);
+	void process_input_events(const std::array<PlumeInputManager::Event, PlumeInputManager::MAX_FRAME_EVENT_NUM>& queue);
 
 	void set_p_window(SDL_Window* pWindow) { _pWindow = pWindow; }
 	const SDL_Window* get_p_window() const { return _pWindow; }

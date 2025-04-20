@@ -5,4 +5,7 @@ add_executable(plume
     plm_inputs.cpp
     plm_inputs.h
     plm_camera.cpp
-    plm_camera.h)
+    plm_camera.h
+    plm_lights.cpp
+    plm_lights.h
+)

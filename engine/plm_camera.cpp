@@ -57,6 +57,33 @@ void PlumeCamera::process_mouse_scroll(float yOffset)
 }
 
 
+CameraDataGPU PlumeCamera::make_gpu_camera_data(const PlumeCamera& lastFrameCamera, WindowExtent windowExtent) const
+{
+	const glm::mat4 view = get_view_matrix();
+
+	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_zoom),
+		windowExtent.width / static_cast<float>(windowExtent.height), 0.1f, DRAW_DISTANCE);
+	projection[1][1] *= -1;
+
+	CameraDataGPU resCameraData = {};
+	resCameraData.view = view;
+	resCameraData.invView = glm::inverse(view);
+	resCameraData.proj = projection;
+	resCameraData.viewproj = projection * view;
+	resCameraData.invProj = glm::inverse(projection);
+	resCameraData.invViewProj = glm::inverse(resCameraData.viewproj);
+
+	glm::mat4 prevView = lastFrameCamera.get_view_matrix();
+	glm::mat4 prevProjection = glm::perspectiveRH_ZO(glm::radians(lastFrameCamera._zoom),
+		windowExtent.width / static_cast<float>(windowExtent.height), 0.1f, DRAW_DISTANCE);
+	prevProjection[1][1] *= -1;
+
+	resCameraData.prevViewProj = prevProjection * prevView;
+
+	return resCameraData;
+}
+
+
 void PlumeCamera::update_camera_vectors()
 {
 	glm::vec3 front = {};

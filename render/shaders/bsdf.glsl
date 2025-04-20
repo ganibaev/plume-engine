@@ -1,6 +1,7 @@
-#ifndef PI
-#define PI 3.1415926535897932384626433832795
-#endif
+#if !defined(BSDF_GLSL)
+#define BSDF_GLSL
+
+#include "common.glsl"
 
 // microfacet distribution
 float GGX(float dotNH, float roughness)
@@ -108,3 +109,6 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness, vec3 texColor
 	}
 	return vec3(0.0);
 }
+
+
+#endif // BSDF_GLSL

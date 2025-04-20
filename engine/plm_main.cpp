@@ -4,11 +4,15 @@
 
 void main(int argc, char* argv[])
 {
-	PlumeInputs inputSystem;
+	PlumeInputManager inputSystem;
+	PlumeLightManager lightManager;
 	PlumeRender renderer;
+
+	lightManager.Init();
 
 	RenderSystem::InitData initData;
 	initData.pCam = inputSystem.get_p_camera();
+	initData.pLightManager = &lightManager;
 
 	renderer.init(initData);
 

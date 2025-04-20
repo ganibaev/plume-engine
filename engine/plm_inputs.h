@@ -7,7 +7,7 @@
 #include <SDL_vulkan.h>
 
 
-class PlumeInputs
+class PlumeInputManager
 {
 public:
 	static constexpr uint32_t MAX_FRAME_EVENT_NUM = 32;

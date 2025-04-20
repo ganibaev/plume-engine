@@ -1,0 +1,7 @@
+#if !defined(COMMON_GLSL)
+#define COMMON_GLSL
+
+#define PI 3.1415926535897932384626433832795
+
+
+#endif // COMMON_GLSL

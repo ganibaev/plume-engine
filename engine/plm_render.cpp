@@ -27,16 +27,16 @@ void PlumeRender::init(RenderSystem::InitData& initData)
 }
 
 
-void PlumeRender::process_input_events(const std::array<PlumeInputs::Event, PlumeInputs::MAX_FRAME_EVENT_NUM>& queue)
+void PlumeRender::process_input_events(const std::array<PlumeInputManager::Event, PlumeInputManager::MAX_FRAME_EVENT_NUM>& queue)
 {
 	bool relMode = false;
 	for (const auto& inputEvent : queue)
 	{
 		switch (inputEvent.type)
 		{
-		case PlumeInputs::EventType::eDebugWindow:
+		case PlumeInputManager::EventType::eDebugWindow:
 			_renderSystem._showDebugUi = !_renderSystem._showDebugUi;
-		case PlumeInputs::EventType::eDefocusMode:
+		case PlumeInputManager::EventType::eDefocusMode:
 			relMode = SDL_GetRelativeMouseMode();
 
 			SDL_WarpMouseInWindow(_pWindow, _windowExtent.width / 2.0f, _windowExtent.height / 2.0f);

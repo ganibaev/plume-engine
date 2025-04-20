@@ -16,7 +16,5 @@ constexpr uint32_t GBUFFER_NORMAL_SLOT = 1;
 constexpr uint32_t GBUFFER_ALBEDO_SLOT = 2;
 constexpr uint32_t GBUFFER_METALLIC_ROUGHNESS_SLOT = 3;
 
-constexpr float DRAW_DISTANCE = 6000.0f;
-
 constexpr size_t MAX_BINDING_SLOTS_PER_SET = 20;
 

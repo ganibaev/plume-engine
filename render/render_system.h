@@ -9,6 +9,7 @@
 #include <unordered_set>
 
 #include "../engine/plm_camera.h"
+#include "../engine/plm_lights.h"
 
 #include "render_descriptors.h"
 #include "render_mesh.h"
@@ -127,6 +128,7 @@ class RenderSystem
 public:
 	struct InitData
 	{
+		const PlumeLightManager* pLightManager = nullptr;
 		const PlumeCamera* pCam = nullptr;
 
 		SDL_Window* pWindow = nullptr;
@@ -176,16 +178,15 @@ public:
 
 	Scene _scene;
 
+	const PlumeLightManager* _pLightManager = nullptr;
+
 	const PlumeCamera* _pCamera = nullptr;
 	PlumeCamera _prevCamera = PlumeCamera(glm::vec3(2.8f, 6.0f, 40.0f));
 
 	glm::mat4 _prevViewProj = glm::identity<glm::mat4>();
 
-	glm::vec3 _centralLightPos = { 2.8f, 20.0f, 17.5f };
-
 	bool _showDebugUi = false;
 
-	SceneData _sceneParameters;
 	AllocatedBuffer _camSceneBuffer;
 
 	ConfigurationVariables _cfg;
@@ -306,8 +307,8 @@ public:
 	void trace_rays(vk::CommandBuffer cmd, uint32_t swapchainImageIndex);
 
 	DeletionQueue _mainDeletionQueue;
-private:
 
+private:
 	void init_vulkan();
 	void init_swapchain();
 	void init_commands();
