@@ -266,9 +266,6 @@ public:
 	vk::StridedDeviceAddressRegionKHR _rchitRegion;
 	vk::StridedDeviceAddressRegionKHR _rcallRegion;
 
-	// load shader module from .spirv
-	bool load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule);
-
 	AllocatedBuffer create_buffer(size_t allocSize, vk::BufferUsageFlags usage, VmaMemoryUsage memUsage,
 		VmaAllocationCreateFlags flags = 0, vk::MemoryPropertyFlags reqFlags = {});
 	AllocatedImage create_image(const vk::ImageCreateInfo& createInfo, VmaMemoryUsage memUsage);

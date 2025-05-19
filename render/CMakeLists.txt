@@ -6,6 +6,8 @@ target_sources(plume PUBLIC
     render_descriptors.h
     render_initializers.cpp
     render_initializers.h
+    render_shader.cpp
+    render_shader.h
     render_mesh.cpp
     render_mesh.h
     render_raytracing.cpp

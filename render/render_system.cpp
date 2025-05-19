@@ -5,11 +5,10 @@
 #include "render_textures.h"
 #include "render_lights.h"
 #include "render_raytracing.h"
+#include "render_shader.h"
 
 // This will make initialization much less of a pain
 #include "VkBootstrap.h"
-
-#include <fstream>
 
 #include <unordered_map>
 
@@ -845,13 +844,9 @@ void RenderSystem::init_pipelines()
 	// this lets pipeline know about shader modules
 	PipelineBuilder pipelineBuilder;
 
-	// not using tricky vertex input yet
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
-
-	// draw triangle lists via input assembly
 	pipelineBuilder._inputAssembly = vkinit::input_assembly_create_info(vk::PrimitiveTopology::eTriangleList);
 
-	// use swapchain extents to build viewport and scissor
 	pipelineBuilder._viewport.x = 0.0f;
 	pipelineBuilder._viewport.y = 0.0f;
 	pipelineBuilder._viewport.width = static_cast<float>(_windowExtent.width);
@@ -867,15 +862,9 @@ void RenderSystem::init_pipelines()
 
 	pipelineBuilder._renderingCreateInfo = texRenderingCreateInfo;
 
-	// draw filled triangles
 	pipelineBuilder._rasterizer = vkinit::rasterization_state_create_info(vk::PolygonMode::eFill);
-	
 	pipelineBuilder._multisampling = vkinit::multisampling_state_create_info(vk::SampleCountFlagBits::e1);
-
-	// no blending, write to rgba
 	pipelineBuilder._colorBlendAttachment = vkinit::color_blend_attachment_state();
-
-	// default depth testing
 	pipelineBuilder._depthStencil = vkinit::depth_stencil_create_info(true, true, vk::CompareOp::eLessOrEqual);
 
 	// build mesh pipeline 
@@ -892,62 +881,29 @@ void RenderSystem::init_pipelines()
 	
 	// init geometry pass pipeline
 
-	vk::ShaderModule geometryPassVertexShader;
+	Render::Shader geometryPassVertexShader;
+	geometryPassVertexShader.create(&_device, "geometry_pass.vert", vk::ShaderStageFlagBits::eVertex);
 
-	if (!load_shader_module("../../../render/shader_binaries/geometry_pass.vert.spv", &geometryPassVertexShader))
-	{
-		std::cout << "Error building geometry pass vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Geometry pass vertex shader loaded successfully" << std::endl;
-	}
-
-	vk::ShaderModule geometryPassFragmentShader;
-
-	if (!load_shader_module("../../../render/shader_binaries/geometry_pass.frag.spv", &geometryPassFragmentShader))
-	{
-		std::cout << "Error building geometry pass fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Geometry pass fragment shader loaded successfully" << std::endl;
-	}
+	Render::Shader geometryPassFragmentShader;
+	geometryPassFragmentShader.create(&_device, "geometry_pass.frag", vk::ShaderStageFlagBits::eFragment);
 
 	pipelineBuilder._renderingCreateInfo = _geometryPassPipelineInfo;
 
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
-		geometryPassVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-		geometryPassFragmentShader));
+	pipelineBuilder._shaderStages.push_back(geometryPassVertexShader.get_stage_create_info());
+	pipelineBuilder._shaderStages.push_back(geometryPassFragmentShader.get_stage_create_info());
 
 	vk::Pipeline geometryPassPipeline = pipelineBuilder.buildPipeline(_device);
 	create_material_set(geometryPassPipeline, texturedPipelineLayout, PipelineType::eGeometryPass, texturedPipelineUsedDescs);
 
 	// init lighting pass pipeline
 
-	vk::ShaderModule lightingPassVertexShader;
+	Render::Shader lightingPassVertexShader;
+	lightingPassVertexShader.create(&_device, "lighting_pass.vert", vk::ShaderStageFlagBits::eVertex);
 
-	if (!load_shader_module("../../../render/shader_binaries/lighting_pass.vert.spv", &lightingPassVertexShader))
-	{
-		std::cout << "Error building lighting pass vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Lighting pass vertex shader loaded successfully" << std::endl;
-	}
+	Render::Shader lightingPassFragmentShader;
+	lightingPassFragmentShader.create(&_device, "lighting_pass.frag", vk::ShaderStageFlagBits::eFragment);
 
-	vk::ShaderModule lightingPassFragmentShader;
-
-	if (!load_shader_module("../../../render/shader_binaries/lighting_pass.frag.spv", &lightingPassFragmentShader))
-	{
-		std::cout << "Error building lighting pass fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Lighting pass fragment shader loaded successfully" << std::endl;
-	}
 
 	vk::PipelineLayoutCreateInfo lightingPassPipelineLayoutInfo;
 
@@ -965,39 +921,22 @@ void RenderSystem::init_pipelines()
 	pipelineBuilder._renderingCreateInfo = _lightingPassPipelineInfo;
 
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
-		lightingPassVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-		lightingPassFragmentShader));
+	pipelineBuilder._shaderStages.push_back(lightingPassVertexShader.get_stage_create_info());
+	pipelineBuilder._shaderStages.push_back(lightingPassFragmentShader.get_stage_create_info());
 
 	pipelineBuilder._vertexInputInfo = vkinit::vertex_input_state_create_info();
 
 	auto lightingPassPipeline = pipelineBuilder.buildPipeline(_device);
 	create_material_set(lightingPassPipeline, lightingPassPipelineLayout, PipelineType::eLightingPass, lightingPassDescFlags);
 
+
 	// init skybox pipeline
 
-	vk::ShaderModule skyboxVertShader;
+	Render::Shader skyboxVertShader;
+	skyboxVertShader.create(&_device, "skybox.vert", vk::ShaderStageFlagBits::eVertex);
 
-	if (!load_shader_module("../../../render/shader_binaries/skybox.vert.spv", &skyboxVertShader))
-	{
-		std::cout << "Error building skybox vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Skybox vertex shader loaded successfully" << std::endl;
-	}
-
-	vk::ShaderModule skyboxFragShader;
-
-	if (!load_shader_module("../../../render/shader_binaries/skybox.frag.spv", &skyboxFragShader))
-	{
-		std::cout << "Error building skybox fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Skybox fragment shader loaded successfully" << std::endl;
-	}
+	Render::Shader skyboxFragShader;
+	skyboxFragShader.create(&_device, "skybox.frag", vk::ShaderStageFlagBits::eFragment);
 
 	// use the vertex info with the pipeline builder
 	pipelineBuilder._vertexInputInfo.setVertexAttributeDescriptions(vertexDescription.attributes);
@@ -1007,10 +946,8 @@ void RenderSystem::init_pipelines()
 	pipelineBuilder._renderingCreateInfo = texRenderingCreateInfo;
 
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
-		skyboxVertShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-		skyboxFragShader));
+	pipelineBuilder._shaderStages.push_back(skyboxVertShader.get_stage_create_info());
+	pipelineBuilder._shaderStages.push_back(skyboxFragShader.get_stage_create_info());
 	pipelineBuilder._pipelineLayout = skyboxPipelineLayout;
 
 	vk::Pipeline skyboxPipeline = pipelineBuilder.buildPipeline(_device);
@@ -1018,38 +955,15 @@ void RenderSystem::init_pipelines()
 
 	// init postprocessing pass pipeline
 
-	vk::ShaderModule postPassVertexShader;
+	Render::Shader postPassVertexShader;
+	postPassVertexShader.create(&_device, "postprocess.vert", vk::ShaderStageFlagBits::eVertex);
 
-	if (!load_shader_module("../../../render/shader_binaries/postprocess.vert.spv", &postPassVertexShader))
-	{
-		std::cout << "Error building postprocess vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Postprocess vertex shader loaded successfully" << std::endl;
-	}
+	Render::Shader fxaaFragmentShader;
+	fxaaFragmentShader.create(&_device, "fxaa.frag", vk::ShaderStageFlagBits::eFragment);
 
-	vk::ShaderModule fxaaFragmentShader;
+	Render::Shader denoiserFragmentShader;
+	denoiserFragmentShader.create(&_device, "morrone_denoiser.frag", vk::ShaderStageFlagBits::eFragment);
 
-	if (!load_shader_module("../../../render/shader_binaries/fxaa.frag.spv", &fxaaFragmentShader))
-	{
-		std::cout << "Error building FXAA fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "FXAA fragment shader loaded successfully" << std::endl;
-	}
-
-	vk::ShaderModule denoiserFragmentShader;
-
-	if (!load_shader_module("../../../render/shader_binaries/morrone_denoiser.frag.spv", &denoiserFragmentShader))
-	{
-		std::cout << "Error building denoiser fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Denoiser fragment shader loaded successfully" << std::endl;
-	}
 
 	vk::PipelineLayoutCreateInfo postPassPipelineLayoutInfo;
 
@@ -1077,17 +991,14 @@ void RenderSystem::init_pipelines()
 	pipelineBuilder._renderingCreateInfo = postPassPipelineRenderingInfo;
 
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
-		postPassVertexShader));
+	pipelineBuilder._shaderStages.push_back(postPassVertexShader.get_stage_create_info());
 	if (_renderMode == RenderMode::eHybrid)
 	{
-		pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-			fxaaFragmentShader));
+		pipelineBuilder._shaderStages.push_back(fxaaFragmentShader.get_stage_create_info());
 	}
 	else
 	{
-		pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-			denoiserFragmentShader));
+		pipelineBuilder._shaderStages.push_back(denoiserFragmentShader.get_stage_create_info());
 	}
 	
 
@@ -1098,16 +1009,8 @@ void RenderSystem::init_pipelines()
 
 	// init motion vector pass pipeline
 
-	vk::ShaderModule motionVectorFragmentShader;
-
-	if (!load_shader_module("../../../render/shader_binaries/motion_vectors.frag.spv", &motionVectorFragmentShader))
-	{
-		std::cout << "Error building motion vector fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Motion vector fragment shader loaded successfully" << std::endl;
-	}
+	Render::Shader motionVectorFragmentShader;
+	motionVectorFragmentShader.create(&_device, "motion_vectors.frag", vk::ShaderStageFlagBits::eFragment);
 
 	vk::PipelineLayoutCreateInfo mvPipelineLayoutInfo;
 
@@ -1125,26 +1028,24 @@ void RenderSystem::init_pipelines()
 
 	pipelineBuilder._renderingCreateInfo = mvPipelineRenderingInfo;
 	pipelineBuilder._shaderStages.clear();
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eVertex,
-		postPassVertexShader));
-	pipelineBuilder._shaderStages.push_back(vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits::eFragment,
-		motionVectorFragmentShader));
+	pipelineBuilder._shaderStages.push_back(postPassVertexShader.get_stage_create_info());
+	pipelineBuilder._shaderStages.push_back(motionVectorFragmentShader.get_stage_create_info());
 
 	auto mvPassPipeline = pipelineBuilder.buildPipeline(_device);
 	create_material_set(mvPassPipeline, mvPassPipelineLayout, PipelineType::eMotionVectors, mvDescFlags);
 
 	// shader modules are now built into the pipelines, we don't need them anymore
 
-	_device.destroyShaderModule(geometryPassVertexShader);
-	_device.destroyShaderModule(geometryPassFragmentShader);
-	_device.destroyShaderModule(lightingPassVertexShader);
-	_device.destroyShaderModule(lightingPassFragmentShader);
-	_device.destroyShaderModule(postPassVertexShader);
-	_device.destroyShaderModule(fxaaFragmentShader);
-	_device.destroyShaderModule(denoiserFragmentShader);
-	_device.destroyShaderModule(motionVectorFragmentShader);
-	_device.destroyShaderModule(skyboxVertShader);
-	_device.destroyShaderModule(skyboxFragShader);
+	geometryPassVertexShader.destroy();
+	geometryPassFragmentShader.destroy();
+	lightingPassVertexShader.destroy();
+	lightingPassFragmentShader.destroy();
+	postPassVertexShader.destroy();
+	fxaaFragmentShader.destroy();
+	denoiserFragmentShader.destroy();
+	motionVectorFragmentShader.destroy();
+	skyboxVertShader.destroy();
+	skyboxFragShader.destroy();
 
 	_mainDeletionQueue.push_function([=]() {
 		_device.destroyPipeline(geometryPassPipeline);
@@ -1325,78 +1226,35 @@ void RenderSystem::init_rt_pipeline()
 
 	std::array<vk::PipelineShaderStageCreateInfo, StageIndices::eShaderGroupCount> stages;
 
-	vk::PipelineShaderStageCreateInfo stage;
-	stage.pName = "main";
-
 	// Raygen
-	vk::ShaderModule pathTracingRayGen;
-	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rgen.spv", &pathTracingRayGen))
-	{
-		std::cout << "Error building path tracing raygen shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Path tracing raygen shader loaded successfully" << std::endl;
-	}
-	stage.module = pathTracingRayGen;
-	stage.stage = vk::ShaderStageFlagBits::eRaygenKHR;
-	stages[StageIndices::eRaygen] = stage;
+	Render::Shader pathTracingRayGen;
+	pathTracingRayGen.create(&_device, "path_tracing.rgen", vk::ShaderStageFlagBits::eRaygenKHR);
+
+	stages[StageIndices::eRaygen] = pathTracingRayGen.get_stage_create_info();
 
 	// Miss
-	vk::ShaderModule pathTracingMiss;
-	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rmiss.spv", &pathTracingMiss))
-	{
-		std::cout << "Error building path tracing miss shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Path tracing miss shader loaded successfully" << std::endl;
-	}
-	stage.module = pathTracingMiss;
-	stage.stage = vk::ShaderStageFlagBits::eMissKHR;
-	stages[StageIndices::eMiss] = stage;
+	Render::Shader pathTracingMiss;
+	pathTracingMiss.create(&_device, "path_tracing.rmiss", vk::ShaderStageFlagBits::eMissKHR);
+
+	stages[StageIndices::eMiss] = pathTracingMiss.get_stage_create_info();
 
 	// Shadow miss
-	vk::ShaderModule shadowMiss;
-	if (!load_shader_module("../../../render/shader_binaries/trace_shadow.rmiss.spv", &shadowMiss))
-	{
-		std::cout << "Error building shadow miss shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Shadow miss shader loaded successfully" << std::endl;
-	}
-	stage.module = shadowMiss;
-	stage.stage = vk::ShaderStageFlagBits::eMissKHR;
-	stages[StageIndices::eShadowMiss] = stage;
+	Render::Shader shadowMiss;
+	shadowMiss.create(&_device, "trace_shadow.rmiss", vk::ShaderStageFlagBits::eMissKHR);
+
+	stages[StageIndices::eShadowMiss] = shadowMiss.get_stage_create_info();
 
 	// Closest hit
-	vk::ShaderModule pathTracingClosestHit;
-	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rchit.spv", &pathTracingClosestHit))
-	{
-		std::cout << "Error building path tracing closest hit shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Path tracing closest hit shader loaded successfully" << std::endl;
-	}
-	stage.module = pathTracingClosestHit;
-	stage.stage = vk::ShaderStageFlagBits::eClosestHitKHR;
-	stages[StageIndices::eClosestHit] = stage;
+	Render::Shader pathTracingClosestHit;
+	pathTracingClosestHit.create(&_device, "path_tracing.rchit", vk::ShaderStageFlagBits::eClosestHitKHR);
+
+	stages[StageIndices::eClosestHit] = pathTracingClosestHit.get_stage_create_info();
 
 	// Any hit
-	vk::ShaderModule pathTracingAnyHit;
-	if (!load_shader_module("../../../render/shader_binaries/path_tracing.rahit.spv", &pathTracingAnyHit))
-	{
-		std::cout << "Error building path tracing any hit shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Path tracing any hit shader loaded successfully" << std::endl;
-	}
-	stage.module = pathTracingAnyHit;
-	stage.stage = vk::ShaderStageFlagBits::eAnyHitKHR;
-	stages[StageIndices::eAnyHit] = stage;
+	Render::Shader pathTracingAnyHit;
+	pathTracingAnyHit.create(&_device, "path_tracing.rahit", vk::ShaderStageFlagBits::eAnyHitKHR);
+
+	stages[StageIndices::eAnyHit] = pathTracingAnyHit.get_stage_create_info();
 
 	// Define shader groups
 	vk::RayTracingShaderGroupCreateInfoKHR shaderGroupInfo;
@@ -2711,43 +2569,6 @@ void RenderSystem::setup_debug_ui_frame()
 	ImGui::End();
 
 	ImGui::Render();
-}
-
-
-bool RenderSystem::load_shader_module(const char* filePath, vk::ShaderModule* outShaderModule)
-{
-	// open the file, put cursor at the end
-	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
-
-	if (!file.is_open())
-	{
-		return false;
-	}
-
-	// get size of file by looking at the cursor location (gives size in bytes)
-	size_t fileSize = static_cast<size_t>(file.tellg());
-
-	std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
-
-	// put cursor at the beginning of the file
-	file.seekg(0);
-
-	// load file into buffer
-	file.read((char*)buffer.data(), fileSize);
-
-	file.close();
-
-	// create a shader module using the buffer
-	vk::ShaderModuleCreateInfo smCreateInfo = vkinit::sm_create_info(buffer);
-	
-	vk::ShaderModule shaderModule = _device.createShaderModule(smCreateInfo);
-	if (!shaderModule)
-	{
-		return false;
-	}
-
-	*outShaderModule = shaderModule;
-	return true;
 }
 
 

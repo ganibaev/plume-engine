@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "../engine/plm_common.h"
+
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 
 #include <vulkan/vulkan.hpp>

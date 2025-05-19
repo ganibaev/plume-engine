@@ -68,19 +68,6 @@ vk::ShaderModuleCreateInfo vkinit::sm_create_info(const std::vector<uint32_t>& b
 	return smCreateInfo;
 }
 
-vk::PipelineShaderStageCreateInfo vkinit::pipeline_shader_stage_create_info(vk::ShaderStageFlagBits stage, vk::ShaderModule shaderModule)
-{
-	vk::PipelineShaderStageCreateInfo info = {};
-
-	// shader stage
-	info.stage = stage;
-	// module with the code for the stage
-	info.module = shaderModule;
-	// shader entry point
-	info.pName = "main";
-	return info;
-}
-
 vk::PipelineVertexInputStateCreateInfo vkinit::vertex_input_state_create_info()
 {
 	vk::PipelineVertexInputStateCreateInfo info = {};
