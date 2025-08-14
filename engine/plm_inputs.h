@@ -7,7 +7,10 @@
 #include <SDL_vulkan.h>
 
 
-class PlumeInputManager
+namespace Plume
+{
+
+class InputManager
 {
 public:
 	static constexpr uint32_t MAX_FRAME_EVENT_NUM = 32;
@@ -34,8 +37,8 @@ public:
 		};
 	};
 
-	void set_camera(PlumeCamera camera) { _camera = camera; }
-	const PlumeCamera* get_p_camera() const { return &_camera; }
+	void set_camera(Plume::Camera camera) { _camera = camera; }
+	const Plume::Camera* get_p_camera() const { return &_camera; }
 
 	const std::array<Event, MAX_FRAME_EVENT_NUM>& get_event_queue() const { return _eventQueue; }
 
@@ -60,10 +63,12 @@ private:
 
 	float _deltaTime = 0.0f;
 	float _lastFrameTime = 0.0f;
-	
+
 	bool _defocusMode = false;
 	bool _shouldQuit = false;
 
-	PlumeCamera _camera = PlumeCamera(glm::vec3(2.8f, 6.0f, 40.0f));
+	Plume::Camera _camera = Plume::Camera(glm::vec3(2.8f, 6.0f, 40.0f));
 	std::array<Event, MAX_FRAME_EVENT_NUM> _eventQueue;
 };
+
+} // namespace Plume

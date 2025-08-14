@@ -13,25 +13,13 @@ This is the repository for Plume, my toy rendering engine written in Vulkan and 
 
 It has two modes of rendering: path tracing and hybrid (rasterization + ray traced shadows).
 
-Both modes use normal mapping, texturing with an arbitrary number of textures using variable descriptor count and nonuniform descriptor indexing (bindless texturing), path tracing mode uses camera jittering, motion vectors, temporal sample accumulation, Russian roulette path termination, shader execution reordering and a Morrone denoiser (also known as *glslSmartDenoise*), while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR and FXAA.
+Both modes use normal mapping, texturing with an arbitrary number of bindless textures; path tracing mode uses camera jittering, motion vectors, temporal sample accumulation, Russian roulette path termination, shader execution reordering and a simple denoiser, while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR materials and FXAA.
 
-The engine also has smooth mouse and WASD camera movement (with LShift to move up and LCtrl to move down), you can zoom in and out via mouse scroll wheel and move the main light source in world space with arrow keys (RShift to move up and RCtrl to move down).
-
-You can press F2 to enable a Dear ImGui window with various configuration options, or press F8 to just show the cursor and be able to move it, or ESC to close the engine.
-
-## Work in progress (loosely arranged in order of priority)
-
-* Denoising improvements
-* Texture system overhaul
-* Motion vector filtering
-* GI for Hybrid mode
-* ReSTIR, ReSTIR GI
-* GPU driven rendering for meshes
-* ...etc.
+You can press F2 to enable a Dear ImGui window with various configuration options, press F8 to just show the cursor and be able to move it, zoom in and out via mouse scroll wheel, or press ESC to close the engine.
 
 ## Running the code
 
-Note that at the moment Plume requires a GPU with real-time ray tracing support.
+Please note that at the moment Plume requires a GPU with real-time ray tracing support.
 
 To run the code and play around with it on your own on Windows, you can do the following:
 ```bash

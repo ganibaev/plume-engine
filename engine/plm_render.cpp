@@ -4,7 +4,7 @@
 #include "imgui_impl_vulkan.h"
 
 
-void PlumeRender::init(RenderSystem::InitData& initData)
+void Plume::RenderManager::init(Render::System::InitData& initData)
 {
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
@@ -27,16 +27,16 @@ void PlumeRender::init(RenderSystem::InitData& initData)
 }
 
 
-void PlumeRender::process_input_events(const std::array<PlumeInputManager::Event, PlumeInputManager::MAX_FRAME_EVENT_NUM>& queue)
+void Plume::RenderManager::process_input_events(const std::array<Plume::InputManager::Event, Plume::InputManager::MAX_FRAME_EVENT_NUM>& queue)
 {
 	bool relMode = false;
 	for (const auto& inputEvent : queue)
 	{
 		switch (inputEvent.type)
 		{
-		case PlumeInputManager::EventType::eDebugWindow:
+		case Plume::InputManager::EventType::eDebugWindow:
 			_renderSystem._showDebugUi = !_renderSystem._showDebugUi;
-		case PlumeInputManager::EventType::eDefocusMode:
+		case Plume::InputManager::EventType::eDefocusMode:
 			relMode = SDL_GetRelativeMouseMode();
 
 			SDL_WarpMouseInWindow(_pWindow, _windowExtent.width / 2.0f, _windowExtent.height / 2.0f);
@@ -51,14 +51,14 @@ void PlumeRender::process_input_events(const std::array<PlumeInputManager::Event
 }
 
 
-void PlumeRender::render_frame()
+void Plume::RenderManager::render_frame()
 {
 	_renderSystem.setup_debug_ui_frame();
 	_renderSystem.render_frame();
 }
 
 
-void PlumeRender::terminate()
+void Plume::RenderManager::terminate()
 {
 	_renderSystem.cleanup();
 
@@ -69,7 +69,7 @@ void PlumeRender::terminate()
 }
 
 
-void PlumeRender::setup_debug_ui_frame()
+void Plume::RenderManager::setup_debug_ui_frame()
 {
 	_renderSystem.setup_debug_ui_frame();
 }

@@ -4,7 +4,7 @@
 #include <SDL_vulkan.h>
 
 
-void PlumeCamera::process_movement(CameraMovement direction, float timeDelta)
+void Plume::Camera::process_movement(CameraMovement direction, float timeDelta)
 {
 	float velocity = _movementSpeed * timeDelta;
 	switch (direction)
@@ -33,7 +33,7 @@ void PlumeCamera::process_movement(CameraMovement direction, float timeDelta)
 }
 
 
-void PlumeCamera::process_camera_motion(float xOffset, float yOffset, bool constrainPitch /* = true */)
+void Plume::Camera::process_camera_motion(float xOffset, float yOffset, bool constrainPitch /* = true */)
 {
 	xOffset *= _mouseSensitivity;
 	yOffset *= _mouseSensitivity;
@@ -50,14 +50,14 @@ void PlumeCamera::process_camera_motion(float xOffset, float yOffset, bool const
 }
 
 
-void PlumeCamera::process_mouse_scroll(float yOffset)
+void Plume::Camera::process_mouse_scroll(float yOffset)
 {
 	_zoom -= yOffset * 2;
 	_zoom = glm::clamp(_zoom, 1.0f, 70.0f);
 }
 
 
-CameraDataGPU PlumeCamera::make_gpu_camera_data(const PlumeCamera& lastFrameCamera, WindowExtent windowExtent) const
+CameraDataGPU Plume::Camera::make_gpu_camera_data(const Plume::Camera& lastFrameCamera, WindowExtent windowExtent) const
 {
 	const glm::mat4 view = get_view_matrix();
 
@@ -84,7 +84,7 @@ CameraDataGPU PlumeCamera::make_gpu_camera_data(const PlumeCamera& lastFrameCame
 }
 
 
-void PlumeCamera::update_camera_vectors()
+void Plume::Camera::update_camera_vectors()
 {
 	glm::vec3 front = {};
 	front.x = cos(glm::radians(_yaw)) * cos(glm::radians(_pitch));

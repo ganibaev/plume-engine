@@ -6,48 +6,30 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <glm/glm.hpp>
+
 #define VMA_DEBUG_LOG_FORMAT
 #include "vk_mem_alloc.h"
 
 #include <deque>
 #include <functional>
 
+#include "../render/shaders/host_device_common.h"
+
 constexpr uint32_t FRAME_OVERLAP = 3;
 
-struct AllocatedBuffer
-{
-	vk::Buffer _buffer;
-	VmaAllocation _allocation = {};
 
-	VmaAllocationInfo _allocationInfo = {};
-	VkMemoryPropertyFlags _memPropFlags;
-};
-
-enum class ImageType
-{
-	eTexture = 0,
-	eCubemap = 1,
-	eRTXOutput = 2
-};
-
-enum class PipelineType
+enum class RenderPassType
 {
 	eGeometryPass = 0,
 	eLightingPass,
 	ePostprocess,
-	eSkybox,
-	eMotionVectors,
-	eRayTracing,
+	eSky,
+	ePathTracing,
 
 	eMaxValue
 };
 
-struct AllocatedImage
-{
-	uint32_t _mipLevels = 1;
-	vk::Image _image;
-	VmaAllocation _allocation = {};
-};
 
 struct AccelerationStructure
 {
@@ -57,12 +39,6 @@ struct AccelerationStructure
 	VmaAllocation _allocation = {};
 };
 
-struct BLASInput
-{
-	vk::AccelerationStructureGeometryTrianglesDataKHR _triangles;
-	vk::AccelerationStructureGeometryKHR _geometry;
-	vk::AccelerationStructureBuildRangeInfoKHR _buildRangeInfo;
-};
 
 struct AccelerationStructureBuild
 {
@@ -74,21 +50,43 @@ struct AccelerationStructureBuild
 	AccelerationStructure _cleanupAs;
 };
 
+
+struct RenderObject
+{
+	struct Mesh* mesh;
+	struct Model* model;
+	glm::mat4 transformMatrix;
+};
+
+
 struct DeletionQueue {
-	std::deque<std::function<void()>> deletors;
+	std::deque<std::function<void()>> deleters;
 
 	void push_function(std::function<void()>&& function)
 	{
-		deletors.push_back(function);
+		deleters.push_back(function);
 	}
 
 	void flush()
 	{
-		for (auto& func : deletors)
+		for (auto& func : deleters)
 		{
 			func();
 		}
 
-		deletors.clear();
+		deleters.clear();
 	}
 };
+
+
+#ifndef NDEBUG
+#define ASSERT_VK(condition, message)                                          \
+    do                                                                         \
+    {                                                                          \
+		VkResult vkRes = static_cast<VkResult>(condition);                     \
+        ASSERT(vkRes == VK_SUCCESS, message);                                  \
+    }                                                                          \
+    while (false)
+#else
+#define ASSERT_VK(condition, message) do { } while (false)
+#endif

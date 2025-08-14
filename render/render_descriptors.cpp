@@ -177,7 +177,7 @@ void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descript
 
 			vk::WriteDescriptorSet bufferWrite = vkinit::write_descriptor_buffer(
 				bufferInfos[i].bufferType, set.sets[i], &(set.bufferInfos.back()), binding);
-			
+
 			set.writes.push_back(bufferWrite);
 			set.writeToSetsAt.push_back(&(set.sets[i]));
 		}
@@ -348,7 +348,7 @@ void Render::DescriptorManager::register_accel_structure(RegisteredDescriptorSet
 	set.layoutBindings[binding] = setBinding;
 }
 
-std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(DescriptorSetFlags usedDscMask)
+std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(DescriptorSetFlags usedDscMask) const
 {
 	std::vector<vk::DescriptorSetLayout> layouts;
 
@@ -365,7 +365,7 @@ std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(Desc
 	return layouts;
 }
 
-std::vector<vk::DescriptorSet> Render::DescriptorManager::get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId)
+std::vector<vk::DescriptorSet> Render::DescriptorManager::get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const
 {
 	std::vector<vk::DescriptorSet> sets;
 

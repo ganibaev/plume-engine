@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render_types.h"
+#include "render_core.h"
 #include <vector>
 #include <glm/glm.hpp>
 #include <string>
@@ -9,24 +10,14 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
-#include <../render/shaders/host_device_common.h>
 
-struct VertexInputDescription
-{
-	std::vector<vk::VertexInputBindingDescription> bindings;
-	std::vector<vk::VertexInputAttributeDescription> attributes;
-
-	vk::PipelineVertexInputStateCreateFlags flags;
-
-	void construct_from_vertex();
-};
 
 struct Mesh
 {
 	std::vector<Vertex> _vertices;
-	AllocatedBuffer _vertexBuffer;
+	Render::Buffer _vertexBuffer;
 	std::vector<uint32_t> _indices;
-	AllocatedBuffer _indexBuffer;
+	Render::Buffer _indexBuffer;
 	int32_t _matIndex = -1;
 	glm::vec3 _emittance{ 0.0f };
 };

@@ -3,57 +3,6 @@
 #include "tiny_obj_loader.h"
 #include <iostream>
 
-void VertexInputDescription::construct_from_vertex()
-{
-	// 1 vertex buffer binding, per-vertex rate
-	vk::VertexInputBindingDescription mainBinding = {};
-	mainBinding.binding = 0;
-	mainBinding.stride = sizeof(Vertex);
-	mainBinding.inputRate = vk::VertexInputRate::eVertex;
-
-	this->bindings.push_back(mainBinding);
-
-	// store position at location 0
-	vk::VertexInputAttributeDescription positionAttribute = {};
-	positionAttribute.binding = 0;
-	positionAttribute.location = 0;
-	positionAttribute.format = vk::Format::eR32G32B32Sfloat;
-	positionAttribute.offset = offsetof(Vertex, position);
-
-	// normals at location 1
-	vk::VertexInputAttributeDescription normalAttribute = {};
-	normalAttribute.binding = 0;
-	normalAttribute.location = 1;
-	normalAttribute.format = vk::Format::eR32G32B32Sfloat;
-	normalAttribute.offset = offsetof(Vertex, normal);
-
-	// colors at location 2
-	vk::VertexInputAttributeDescription colorAttribute = {};
-	colorAttribute.binding = 0;
-	colorAttribute.location = 2;
-	colorAttribute.format = vk::Format::eR32G32B32Sfloat;
-	colorAttribute.offset = offsetof(Vertex, color);
-
-	// UV at location 3
-	vk::VertexInputAttributeDescription uvAttribute = {};
-	uvAttribute.binding = 0;
-	uvAttribute.location = 3;
-	uvAttribute.format = vk::Format::eR32G32Sfloat;
-	uvAttribute.offset = offsetof(Vertex, uv);
-
-	// tangents at location 4
-	vk::VertexInputAttributeDescription tangentAttribute = {};
-	tangentAttribute.binding = 0;
-	tangentAttribute.location = 4;
-	tangentAttribute.format = vk::Format::eR32G32B32Sfloat;
-	tangentAttribute.offset = offsetof(Vertex, tangent);
-
-	this->attributes.push_back(positionAttribute);
-	this->attributes.push_back(normalAttribute);
-	this->attributes.push_back(colorAttribute);
-	this->attributes.push_back(uvAttribute);
-	this->attributes.push_back(tangentAttribute);
-}
 
 bool Model::load_assimp(std::string filePath)
 {

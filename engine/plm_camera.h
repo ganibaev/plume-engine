@@ -27,7 +27,10 @@ constexpr float ZOOM = 70.0f;
 constexpr float DRAW_DISTANCE = 6000.0f;
 
 
-class PlumeCamera
+namespace Plume
+{
+
+class Camera
 {
 public:
 	glm::vec3 _position{ 0.0f };
@@ -43,19 +46,19 @@ public:
 	float _mouseSensitivity;
 	float _zoom;
 
-	PlumeCamera(glm::vec3 position)
+	Camera(glm::vec3 position)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position)
 	{
 		update_camera_vectors();
 	}
 
-	PlumeCamera(glm::vec3 position, glm::vec3 up, float yaw = YAW, float pitch = PITCH)
+	Camera(glm::vec3 position, glm::vec3 up, float yaw = YAW, float pitch = PITCH)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position), _worldUp(up), _yaw(yaw), _pitch(pitch)
 	{
 		update_camera_vectors();
 	}
 
-	PlumeCamera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch)
+	Camera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(glm::vec3(posX, posY, posZ)), _worldUp(glm::vec3(upX, upY, upZ)), _yaw(yaw), _pitch(pitch)
 	{
 		update_camera_vectors();
@@ -73,9 +76,11 @@ public:
 	bool is_movement_active(CameraMovement movement) const { return _activeMovements[static_cast<size_t>(movement)]; }
 	void set_movement_status(CameraMovement movement, bool isActive) { _activeMovements[static_cast<size_t>(movement)] = isActive; }
 
-	CameraDataGPU make_gpu_camera_data(const PlumeCamera& lastFrameCamera, WindowExtent windowExtent) const;
+	CameraDataGPU make_gpu_camera_data(const Camera& lastFrameCamera, WindowExtent windowExtent) const;
 private:
 	std::array<bool, static_cast<size_t>(CameraMovement::MAX_ENUM)> _activeMovements = { false };
 
 	void update_camera_vectors();
 };
+
+} // namespace Plume

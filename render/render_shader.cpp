@@ -4,10 +4,10 @@
 #include <fstream>
 
 
-void Render::Shader::create(vk::Device* pDevice, std::string shaderFileName, vk::ShaderStageFlagBits shaderStage)
+void Render::Shader::create(vk::Device* pDevice, std::string shaderFileName)
 {
 	_pDevice = pDevice;
-	_stage = shaderStage;
+	_stage = get_shader_stage_from_file_name(shaderFileName);
 
 	load_module(shaderFileName);
 
@@ -48,6 +48,77 @@ vk::PipelineShaderStageCreateInfo Render::Shader::make_stage_create_info() const
 	// shader entry point
 	info.pName = "main";
 	return info;
+}
+
+
+Render::Shader::RTStageIndices Render::Shader::get_rt_shader_index_from_file_name(std::string shaderName)
+{
+	vk::ShaderStageFlagBits shaderStage = get_shader_stage_from_file_name(shaderName);
+
+	Render::Shader::RTStageIndices stageIndex = {};
+
+	switch (shaderStage)
+	{
+	case vk::ShaderStageFlagBits::eRaygenKHR:
+		return Shader::RTStageIndices::eRaygen;
+	case vk::ShaderStageFlagBits::eAnyHitKHR:
+		return Shader::RTStageIndices::eAnyHit;
+	case vk::ShaderStageFlagBits::eClosestHitKHR:
+		return Shader::RTStageIndices::eClosestHit;
+	case vk::ShaderStageFlagBits::eMissKHR:
+		if (shaderName.length() >= 12 && shaderName.substr(shaderName.length() - 12, 12) == "shadow.rmiss")
+		{
+			return Shader::RTStageIndices::eShadowMiss;
+		}
+
+		return Shader::RTStageIndices::eMiss;
+	default:
+		ASSERT(false, "Invalid or unsupported RT shader stage");
+		return Shader::RTStageIndices::eShaderGroupCount;
+	}
+}
+
+
+vk::ShaderStageFlagBits Render::Shader::get_shader_stage_from_file_name(std::string shaderFileName)
+{
+	ASSERT(shaderFileName.length() >= 5, "Invalid shader file name");
+
+	vk::ShaderStageFlagBits resStage = {};
+	std::string extensionSubstr = shaderFileName.substr(shaderFileName.length() - 4, 4);
+	if (extensionSubstr == "vert")
+	{
+		resStage = vk::ShaderStageFlagBits::eVertex;
+	}
+	else if (extensionSubstr == "frag")
+	{
+		resStage = vk::ShaderStageFlagBits::eFragment;
+	}
+	else if (extensionSubstr == "comp")
+	{
+		resStage = vk::ShaderStageFlagBits::eCompute;
+	}
+	else if (extensionSubstr == "rgen")
+	{
+		resStage = vk::ShaderStageFlagBits::eRaygenKHR;
+	}
+	else if (extensionSubstr == "ahit")
+	{
+		resStage = vk::ShaderStageFlagBits::eAnyHitKHR;
+	}
+	else if (extensionSubstr == "chit")
+	{
+		resStage = vk::ShaderStageFlagBits::eClosestHitKHR;
+	}
+	else if (extensionSubstr == "miss")
+	{
+		resStage = vk::ShaderStageFlagBits::eMissKHR;
+	}
+	else
+	{
+		ASSERT(false, "Invalid shader format. If it's a new format please handle it in the function above.");
+	}
+
+	return resStage;
 }
 
 

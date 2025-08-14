@@ -1,3 +1,5 @@
+#pragma once
+
 #include "render_types.h"
 #include <vector>
 
@@ -103,9 +105,9 @@ public:
 	void register_accel_structure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 		vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame = false);
 
-	std::vector<vk::DescriptorSetLayout> get_layouts(DescriptorSetFlags usedDscMask);
+	std::vector<vk::DescriptorSetLayout> get_layouts(DescriptorSetFlags usedDscMask) const;
 
-	std::vector<vk::DescriptorSet> get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId);
+	std::vector<vk::DescriptorSet> get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const;
 
 	static constexpr uint32_t NUM_DESCRIPTOR_SETS = static_cast<int>(RegisteredDescriptorSet::eMaxValue);
 private:

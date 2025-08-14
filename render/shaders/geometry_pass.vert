@@ -2,6 +2,9 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_scalar_block_layout : enable
 
+#include "common.glsl"
+#include "host_device_common.h"
+
 layout (location = 0) in vec3 vPosition;
 layout (location = 1) in vec3 vNormal;
 layout (location = 2) in vec3 vColor;
@@ -15,33 +18,19 @@ layout (location = 3) out vec3 fragPosWorld;
 layout (location = 4) out vec3 fragNormalWorld;
 layout (location = 5) out vec3 fragTangent;
 
-struct CameraData
-{
-	mat4 view;
-	mat4 invView;
-	mat4 proj;
-	mat4 viewproj;
-};
 
 layout (set = 5, binding = 0) uniform CameraBuffer
 {
-	CameraData camData;
+	CameraDataGPU camData;
 } camSceneData;
 
-struct ObjectData
-{
-	mat4 model;
-	int matIndex;
-	uint64_t indexBufferAddress;
-	uint64_t vertexBufferAddress;
-	vec3 emittance;
-};
 
 // object data 
 layout (set = 4, binding = 0, scalar) readonly buffer ObjectBuffer
 {
 	ObjectData objects[];
 } objectBuffer;
+
 
 void main()
 {

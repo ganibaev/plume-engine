@@ -6,12 +6,15 @@
 
 struct SDL_Window;
 
-class PlumeRender
+namespace Plume
+{
+
+class RenderManager
 {
 public:
-	void init(RenderSystem::InitData& initData);
+	void init(Render::System::InitData& initData);
 
-	void process_input_events(const std::array<PlumeInputManager::Event, PlumeInputManager::MAX_FRAME_EVENT_NUM>& queue);
+	void process_input_events(const std::array<Plume::InputManager::Event, Plume::InputManager::MAX_FRAME_EVENT_NUM>& queue);
 
 	void set_p_window(SDL_Window* pWindow) { _pWindow = pWindow; }
 	const SDL_Window* get_p_window() const { return _pWindow; }
@@ -23,7 +26,7 @@ public:
 	void terminate();
 
 private:
-	RenderSystem _renderSystem;
+	Render::System _renderSystem;
 
 	bool _defocusMode = false;
 
@@ -32,3 +35,5 @@ private:
 
 	void setup_debug_ui_frame();
 };
+
+} // namespace Plume

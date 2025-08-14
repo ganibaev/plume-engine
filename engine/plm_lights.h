@@ -1,10 +1,13 @@
 #pragma once
 
+#include "plm_common.h"
 #include "glm/glm.hpp"
 #include <array>
 
+namespace Plume
+{
 
-class PlumeLightManager
+class LightManager
 {
 public:
 	static constexpr int32_t MAX_NUM_OF_DIRECTIONAL_LIGHTS = 1;
@@ -55,3 +58,5 @@ private:
 
 	std::array<Light, MAX_NUM_OF_LIGHTS> _lights;
 };
+
+} // namespace Plume

@@ -11,9 +11,9 @@ namespace Render
 class LightManager
 {
 public:
-	static DirectionalLightGPU make_gpu_directional_light(const PlumeLightManager::Light& light);
-	static PointLightGPU make_gpu_point_light(const PlumeLightManager::Light& light);
-	static LightingData make_lighting_data(const std::array<PlumeLightManager::Light, PlumeLightManager::MAX_NUM_OF_LIGHTS>& lights);
+	static DirectionalLightGPU make_gpu_directional_light(const Plume::LightManager::Light& light);
+	static PointLightGPU make_gpu_point_light(const Plume::LightManager::Light& light);
+	static LightingData make_lighting_data(const std::array<Plume::LightManager::Light, Plume::LightManager::MAX_NUM_OF_LIGHTS>& lights);
 };
 
 } // namespace Render

@@ -1,7 +1,7 @@
 #include "plm_lights.h"
 
 
-void PlumeLightManager::Init()
+void Plume::LightManager::Init()
 {
 	// Set up default lighting
 	// TODO: Read static lighting from the scene description
@@ -41,18 +41,18 @@ void PlumeLightManager::Init()
 }
 
 
-const PlumeLightManager::Light& PlumeLightManager::GetPointLight(int32_t lightId) const
+const Plume::LightManager::Light& Plume::LightManager::GetPointLight(int32_t lightId) const
 {
-	assert(lightId >= 0 && lightId < MAX_NUM_OF_POINT_LIGHTS);
+	ASSERT(lightId >= 0 && lightId < MAX_NUM_OF_POINT_LIGHTS, "Light ID out of range");
 
 	return _lights[MAX_NUM_OF_DIRECTIONAL_LIGHTS + MAX_NUM_OF_AMBIENT_LIGHTS + lightId];
 }
 
 
-void PlumeLightManager::AddDirectionalLight(Light& dirLight)
+void Plume::LightManager::AddDirectionalLight(Light& dirLight)
 {
-	assert(dirLight.type == LightType::eDirectional);
-	assert(_numOfRegisteredDirectionalLights != MAX_NUM_OF_DIRECTIONAL_LIGHTS);
+	ASSERT(dirLight.type == LightType::eDirectional, "Invalid light type");
+	ASSERT(_numOfRegisteredDirectionalLights != MAX_NUM_OF_DIRECTIONAL_LIGHTS, "Can't add any more lights of this type");
 
 	dirLight.id = DIRECTIONAL_LIGHT_ID;
 	_lights[dirLight.id] = dirLight;
@@ -60,10 +60,10 @@ void PlumeLightManager::AddDirectionalLight(Light& dirLight)
 }
 
 
-void PlumeLightManager::AddAmbientLight(Light& ambientLight)
+void Plume::LightManager::AddAmbientLight(Light& ambientLight)
 {
-	assert(ambientLight.type == LightType::eAmbient);
-	assert(_numOfRegisteredAmbientLights != MAX_NUM_OF_AMBIENT_LIGHTS);
+	ASSERT(ambientLight.type == LightType::eAmbient, "Invalid light type");
+	ASSERT(_numOfRegisteredAmbientLights != MAX_NUM_OF_AMBIENT_LIGHTS, "Can't add any more lights of this type");
 
 	ambientLight.id = AMBIENT_LIGHT_ID;
 	_lights[ambientLight.id] = ambientLight;
@@ -71,10 +71,10 @@ void PlumeLightManager::AddAmbientLight(Light& ambientLight)
 }
 
 
-void PlumeLightManager::AddPointLight(Light& pointLight)
+void Plume::LightManager::AddPointLight(Light& pointLight)
 {
-	assert(pointLight.type == LightType::ePoint);
-	assert(_numOfRegisteredPointLights != MAX_NUM_OF_POINT_LIGHTS);
+	ASSERT(pointLight.type == LightType::ePoint, "Invalid light type");
+	ASSERT(_numOfRegisteredPointLights != MAX_NUM_OF_POINT_LIGHTS, "Can't add any more lights of this type");
 
 	pointLight.id = MAX_NUM_OF_DIRECTIONAL_LIGHTS + MAX_NUM_OF_AMBIENT_LIGHTS + _numOfRegisteredPointLights;
 	_lights[pointLight.id] = pointLight;

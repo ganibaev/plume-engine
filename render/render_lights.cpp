@@ -1,7 +1,7 @@
 #include "render_lights.h"
 
 
-DirectionalLightGPU Render::LightManager::make_gpu_directional_light(const PlumeLightManager::Light& light)
+DirectionalLightGPU Render::LightManager::make_gpu_directional_light(const Plume::LightManager::Light& light)
 {
 	DirectionalLightGPU resLight = {};
 	resLight.color = glm::vec4(light.color, light.intensity);
@@ -11,7 +11,7 @@ DirectionalLightGPU Render::LightManager::make_gpu_directional_light(const Plume
 }
 
 
-PointLightGPU Render::LightManager::make_gpu_point_light(const PlumeLightManager::Light& light)
+PointLightGPU Render::LightManager::make_gpu_point_light(const Plume::LightManager::Light& light)
 {
 	PointLightGPU resLight = {};
 	resLight.color = glm::vec4(light.color, light.intensity);
@@ -21,7 +21,7 @@ PointLightGPU Render::LightManager::make_gpu_point_light(const PlumeLightManager
 }
 
 
-LightingData Render::LightManager::make_lighting_data(const std::array<PlumeLightManager::Light, PlumeLightManager::MAX_NUM_OF_LIGHTS>& lights)
+LightingData Render::LightManager::make_lighting_data(const std::array<Plume::LightManager::Light, Plume::LightManager::MAX_NUM_OF_LIGHTS>& lights)
 {
 	LightingData resLightData = {};
 	
@@ -30,13 +30,13 @@ LightingData Render::LightManager::make_lighting_data(const std::array<PlumeLigh
 
 		switch (light.type)
 		{
-		case PlumeLightManager::LightType::eDirectional:
+		case Plume::LightManager::LightType::eDirectional:
 			resLightData.dirLight = make_gpu_directional_light(light);
 			break;
-		case PlumeLightManager::LightType::eAmbient:
+		case Plume::LightManager::LightType::eAmbient:
 			resLightData.ambientLight = glm::vec4(light.color, light.intensity);
 			break;
-		case PlumeLightManager::LightType::ePoint:
+		case Plume::LightManager::LightType::ePoint:
 			assert(curPointLightId < MAX_POINT_LIGHTS_PER_FRAME);
 
 			resLightData.pointLights[curPointLightId] = make_gpu_point_light(light);

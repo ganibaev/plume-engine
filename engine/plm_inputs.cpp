@@ -2,7 +2,7 @@
 #include "imgui_impl_sdl3.h"
 
 
-void PlumeInputManager::poll_events()
+void Plume::InputManager::poll_events()
 {
 	float curFrameTime = static_cast<float>(SDL_GetTicks() / 1000.0f);
 	_deltaTime = curFrameTime - _lastFrameTime;
@@ -83,7 +83,7 @@ void PlumeInputManager::poll_events()
 }
 
 
-CameraMovement PlumeInputManager::sdl_key_to_movement(SDL_Keycode sym)
+CameraMovement Plume::InputManager::sdl_key_to_movement(SDL_Keycode sym)
 {
 	CameraMovement movement = CameraMovement::NONE;
 
@@ -115,7 +115,7 @@ CameraMovement PlumeInputManager::sdl_key_to_movement(SDL_Keycode sym)
 }
 
 
-void PlumeInputManager::clear_event_queue()
+void Plume::InputManager::clear_event_queue()
 {
 	for (Event& queueEvent : _eventQueue)
 	{
@@ -124,7 +124,7 @@ void PlumeInputManager::clear_event_queue()
 }
 
 
-void PlumeInputManager::process_general_queue_events()
+void Plume::InputManager::process_general_queue_events()
 {
 	for (Event& queueEvent : _eventQueue)
 	{
@@ -181,7 +181,7 @@ void PlumeInputManager::process_general_queue_events()
 }
 
 
-void PlumeInputManager::on_mouse_motion_callback()
+void Plume::InputManager::on_mouse_motion_callback()
 {
 	float outRelX = 0;
 	float outRelY = 0;
@@ -195,13 +195,13 @@ void PlumeInputManager::on_mouse_motion_callback()
 }
 
 
-void PlumeInputManager::on_mouse_scroll_callback(float yOffset)
+void Plume::InputManager::on_mouse_scroll_callback(float yOffset)
 {
 	_camera.process_mouse_scroll(yOffset);
 }
 
 
-void PlumeInputManager::process_movement()
+void Plume::InputManager::process_movement()
 {
 	for (size_t i = 0; i < static_cast<size_t>(CameraMovement::MAX_ENUM); ++i)
 	{
@@ -216,7 +216,7 @@ void PlumeInputManager::process_movement()
 }
 
 
-void PlumeInputManager::on_keyboard_event_callback(SDL_Keycode sym, bool keyDown)
+void Plume::InputManager::on_keyboard_event_callback(SDL_Keycode sym, bool keyDown)
 {
 	CameraMovement movement = sdl_key_to_movement(sym);
 
