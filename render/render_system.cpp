@@ -9,14 +9,6 @@
 
 #include <unordered_map>
 
-#include <glm/gtx/transform.hpp>
-
-
-#define VMA_IMPLEMENTATION
-#include "vk_mem_alloc.h"
-
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
-
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
@@ -26,6 +18,7 @@ void Render::System::init_backend_and_data(const Render::System::InitData& initD
 {
 	_pCamera = initData.pCam;
 	_pLightManager = initData.pLightManager;
+	_pScene = initData.pScene;
 
 	Render::Backend* backend = Render::Backend::AcquireInstance();
 	
@@ -52,13 +45,11 @@ void Render::System::init(const Render::System::InitData& initData)
 
 	init_path_tracing_gbuffer_images();
 
-	load_meshes();
-
 	load_images();
 
 	init_descriptors();
 
-	init_scene();
+	init_render_scene();
 
 	init_blas();
 
@@ -329,7 +320,7 @@ void Render::System::init_geometry_pass()
 
 	geometryPassInfo.useVertexAttributes = true;
 
-	auto geometryPassId = static_cast<size_t>(RenderPassType::eGeometryPass);
+	auto geometryPassId = static_cast<size_t>(Render::Pass::Type::eGeometryPass);
 	_renderPasses[geometryPassId].Init(geometryPassInfo);
 }
 
@@ -366,7 +357,7 @@ void Render::System::init_lighting_pass()
 
 	lightingPassInfo.pShaderNames = &lightingPassShaders;
 
-	auto lightingPassId = static_cast<size_t>(RenderPassType::eLightingPass);
+	auto lightingPassId = static_cast<size_t>(Render::Pass::Type::eLightingPass);
 	_renderPasses[lightingPassId].Init(lightingPassInfo);
 }
 
@@ -415,7 +406,7 @@ void Render::System::init_postprocess_pass()
 
 	postprocessPassInfo.pcInitInfo = pcInitInfo;
 
-	auto postprocessPassId = static_cast<size_t>(RenderPassType::ePostprocess);
+	auto postprocessPassId = static_cast<size_t>(Render::Pass::Type::ePostprocess);
 	_renderPasses[postprocessPassId].Init(postprocessPassInfo);
 }
 
@@ -453,7 +444,7 @@ void Render::System::init_sky_pass()
 
 	skyboxPassInfo.useVertexAttributes = true;
 
-	auto skyboxPassId = static_cast<size_t>(RenderPassType::eSky);
+	auto skyboxPassId = static_cast<size_t>(Render::Pass::Type::eSky);
 	_renderPasses[skyboxPassId].Init(skyboxPassInfo);
 }
 
@@ -527,7 +518,7 @@ void Render::System::init_path_tracing_pass()
 
 	pathTracingPassInfo.pcInitInfo = pcInitInfo;
 
-	auto ptPassId = static_cast<size_t>(RenderPassType::ePathTracing);
+	auto ptPassId = static_cast<size_t>(Render::Pass::Type::ePathTracing);
 	_renderPasses[ptPassId].InitRT(pathTracingPassInfo);
 }
 
@@ -546,43 +537,6 @@ void Render::System::init_passes()
 }
 
 
-void Render::System::load_meshes()
-{
-	Model suzanneModel;
-	suzanneModel._parentScene = &_scene;
-	suzanneModel.load_assimp("../../../assets/suzanne/Suzanne.gltf");
-
-	for (Mesh& mesh : suzanneModel._meshes)
-	{
-		upload_mesh(mesh);
-	}
-
-	_scene._models["suzanne"] = suzanneModel;
-
-	Model sponza;
-	sponza._parentScene = &_scene;
-	sponza.load_assimp("../../../assets/sponza/Sponza.gltf");
-
-	for (Mesh& mesh : sponza._meshes)
-	{
-		upload_mesh(mesh);
-	}
-
-	_scene._models["sponza"] = sponza;
-
-	Model cube;
-	cube._parentScene = &_scene;
-	cube.load_assimp("../../../assets/cube.gltf");
-
-	for (Mesh& mesh : cube._meshes)
-	{
-		upload_mesh(mesh);
-	}
-
-	_scene._models["cube"] = cube;
-}
-
-
 void Render::System::init_blas()
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -594,7 +548,7 @@ void Render::System::init_blas()
 
 	for (size_t i = 0; i < _renderables.size() - 1; ++i)
 	{
-		blasInputs.emplace_back(backend->ConvertMeshToBlasInput(*_renderables[i].mesh, blasGeometryFlags));
+		blasInputs.emplace_back(backend->ConvertMeshToBlasInput(_renderables[i].mesh, blasGeometryFlags));
 	}
 
 	RenderBackendRTUtils::buildBlas(this, blasInputs);
@@ -698,7 +652,7 @@ void Render::System::load_images()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	vk::Sampler smoothSampler = backend->GetSampler(Render::SamplerType::eLinearRepeat);
+	vk::Sampler smoothSampler = backend->GetSampler(Render::SamplerType::eLinearRepeatAnisotropic);
 
 	Render::Image defaultTex = {};
 
@@ -709,89 +663,92 @@ void Render::System::load_images()
 	texInfo.sampler = smoothSampler;
 	texInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-	std::vector<Render::DescriptorManager::ImageInfo> diffuseInfos(_scene._diffuseTexNames.size());
+	ASSERT(_pScene != nullptr, "Invalid scene");
+	const Plume::Scene& scene = *_pScene;
 
-	for (size_t i = 0; i < _scene._diffuseTexNames.size(); ++i)
+	std::vector<Render::DescriptorManager::ImageInfo> diffuseInfos(scene.diffuseTexNames.size());
+
+	for (size_t i = 0; i < scene.diffuseTexNames.size(); ++i)
 	{
 		Render::Image diffuse = {};
 
-		if (!_scene._diffuseTexNames[i].empty())
+		if (!scene.diffuseTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(diffuse, _scene._diffuseTexNames[i], _scene._matNames[i], DIFFUSE_TEX_SLOT);
+			bool loadRes = load_material_texture(diffuse, scene.diffuseTexNames[i], scene.matNames[i], DIFFUSE_TEX_SLOT);
 
 			if (!loadRes)
 			{
-				_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
+				_loadedTextures[scene.matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
 			}
 		}
 		else
 		{
-			_loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
+			_loadedTextures[scene.matNames[i]][DIFFUSE_TEX_SLOT] = defaultTex;
 		}
 		
 		diffuseInfos[i] = texInfo;
-		diffuseInfos[i].imageView = _loadedTextures[_scene._matNames[i]][DIFFUSE_TEX_SLOT].GetView();
+		diffuseInfos[i].imageView = _loadedTextures[scene.matNames[i]][DIFFUSE_TEX_SLOT].GetView();
 	}
 
 	backend->RegisterImage(Render::RegisteredDescriptorSet::eDiffuseTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eRaygenKHR |
-		vk::ShaderStageFlagBits::eAnyHitKHR, diffuseInfos, 0, static_cast<uint32_t>(_scene._diffuseTexNames.size()),
+		vk::ShaderStageFlagBits::eAnyHitKHR, diffuseInfos, 0, static_cast<uint32_t>(scene.diffuseTexNames.size()),
 		true);
 
 
-	std::vector<Render::DescriptorManager::ImageInfo> metallicInfos(_scene._metallicTexNames.size());
-	for (size_t i = 0; i < _scene._metallicTexNames.size(); ++i)
+	std::vector<Render::DescriptorManager::ImageInfo> metallicInfos(scene.metallicTexNames.size());
+	for (size_t i = 0; i < scene.metallicTexNames.size(); ++i)
 	{
 		Render::Image metallic = {};
 
-		if (!_scene._metallicTexNames[i].empty())
+		if (!scene.metallicTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(metallic, _scene._metallicTexNames[i], _scene._matNames[i], METALLIC_TEX_SLOT);
+			bool loadRes = load_material_texture(metallic, scene.metallicTexNames[i], scene.matNames[i], METALLIC_TEX_SLOT);
 
 			if (!loadRes)
 			{
-				_loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT] = defaultTex;
+				_loadedTextures[scene.matNames[i]][METALLIC_TEX_SLOT] = defaultTex;
 			}
 		}
 		else
 		{
-			_loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT] = defaultTex;
+			_loadedTextures[scene.matNames[i]][METALLIC_TEX_SLOT] = defaultTex;
 		}
 
 		metallicInfos[i] = texInfo;
-		metallicInfos[i].imageView = _loadedTextures[_scene._matNames[i]][METALLIC_TEX_SLOT].GetView();
+		metallicInfos[i].imageView = _loadedTextures[scene.matNames[i]][METALLIC_TEX_SLOT].GetView();
 	}
 
 	backend->RegisterImage(Render::RegisteredDescriptorSet::eMetallicTextures, vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR,
-		metallicInfos, 0, static_cast<uint32_t>(_scene._metallicTexNames.size()), true);
+		metallicInfos, 0, static_cast<uint32_t>(scene.metallicTexNames.size()), true);
 
 
-	std::vector<Render::DescriptorManager::ImageInfo> roughnessInfos(_scene._roughnessTexNames.size());
-	for (size_t i = 0; i < _scene._roughnessTexNames.size(); ++i)
+	std::vector<Render::DescriptorManager::ImageInfo> roughnessInfos(scene.roughnessTexNames.size());
+	for (size_t i = 0; i < scene.roughnessTexNames.size(); ++i)
 	{
 		Render::Image roughness = {};
 
-		if (!_scene._roughnessTexNames[i].empty())
+		if (!scene.roughnessTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(roughness, _scene._roughnessTexNames[i], _scene._matNames[i], ROUGHNESS_TEX_SLOT);
+			bool loadRes = load_material_texture(roughness, scene.roughnessTexNames[i], scene.matNames[i], ROUGHNESS_TEX_SLOT);
 
 			if (!loadRes)
 			{
-				_loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT] = defaultTex;
+				_loadedTextures[scene.matNames[i]][ROUGHNESS_TEX_SLOT] = defaultTex;
 			}
 		}
 		else
 		{
-			_loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT] = defaultTex;
+			_loadedTextures[scene.matNames[i]][ROUGHNESS_TEX_SLOT] = defaultTex;
 		}
 
 		roughnessInfos[i] = texInfo;
-		roughnessInfos[i].imageView = _loadedTextures[_scene._matNames[i]][ROUGHNESS_TEX_SLOT].GetView();
+		roughnessInfos[i].imageView = _loadedTextures[scene.matNames[i]][ROUGHNESS_TEX_SLOT].GetView();
 	}
 
 	backend->RegisterImage(Render::RegisteredDescriptorSet::eRoughnessTextures, vk::ShaderStageFlagBits::eFragment |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR, roughnessInfos, 0,
-		static_cast<uint32_t>(_scene._roughnessTexNames.size()), true);
+		static_cast<uint32_t>(scene.roughnessTexNames.size()), true);
 
 
 	Render::Image defaultNormal = {};
@@ -799,30 +756,30 @@ void Render::System::load_images()
 	RenderUtil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal, true,
 		vk::Format::eR32G32B32A32Sfloat);
 
-	std::vector<Render::DescriptorManager::ImageInfo> normalMapInfos(_scene._normalMapNames.size());
-	for (size_t i = 0; i < _scene._normalMapNames.size(); ++i)
+	std::vector<Render::DescriptorManager::ImageInfo> normalMapInfos(scene.normalMapNames.size());
+	for (size_t i = 0; i < scene.normalMapNames.size(); ++i)
 	{
 		Render::Image normalMap = {};
 
-		bool loadRes = load_material_texture(normalMap, _scene._normalMapNames[i], _scene._matNames[i], NORMAL_MAP_SLOT,
+		bool loadRes = load_material_texture(normalMap, scene.normalMapNames[i], scene.matNames[i], NORMAL_MAP_SLOT,
 			true, vk::Format::eR32G32B32A32Sfloat);
 
 		if (!loadRes)
 		{
-			_loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT] = defaultNormal;
+			_loadedTextures[scene.matNames[i]][NORMAL_MAP_SLOT] = defaultNormal;
 		}
 		else
 		{
-			_loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT] = normalMap;
+			_loadedTextures[scene.matNames[i]][NORMAL_MAP_SLOT] = normalMap;
 		}
 
 		normalMapInfos[i] = texInfo;
-		normalMapInfos[i].imageView = _loadedTextures[_scene._matNames[i]][NORMAL_MAP_SLOT].GetView();
+		normalMapInfos[i].imageView = _loadedTextures[scene.matNames[i]][NORMAL_MAP_SLOT].GetView();
 	}
 
 	backend->RegisterImage(Render::RegisteredDescriptorSet::eNormalMapTextures, vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eClosestHitKHR |
 		vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR, normalMapInfos,
-		0, static_cast<uint32_t>(_scene._normalMapNames.size()), true);
+		0, static_cast<uint32_t>(scene.normalMapNames.size()), true);
 
 
 	load_skybox(_skybox, "../../../assets/skybox/");
@@ -875,70 +832,33 @@ void Render::System::update_rt_frame()
 }
 
 
-void Render::System::init_scene()
+void Render::System::init_render_scene()
 {
-	RenderObject suzanne = {};
-	suzanne.model = get_model("suzanne");
-	suzanne.mesh = &(suzanne.model->_meshes.front());
-	glm::mat4 meshTranslate = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
-	suzanne.transformMatrix = meshTranslate;
+	ASSERT(_pScene != nullptr, "Invalid scene");
 
-	_renderables.push_back(suzanne);
-
-	Model* pSceneModel = get_model("sponza");
-
-	ASSERT(pSceneModel != nullptr, "Can't load scene model");
-
-	glm::mat4 sceneTransform = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f),
-		glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
-
-	for (Mesh& mesh : pSceneModel->_meshes)
-	{
-		RenderObject renderSceneMesh = {};
-		renderSceneMesh.model = pSceneModel;
-		renderSceneMesh.mesh = &mesh;
-		renderSceneMesh.transformMatrix = sceneTransform;
-
-		_renderables.push_back(std::move(renderSceneMesh));
-	}
-
-	_skyboxObject.model = get_model("cube");
-	_skyboxObject.mesh = &(_skyboxObject.model->_meshes.front());
-	glm::mat4 meshScale = glm::scale(glm::mat4{ 1.0f }, glm::vec3(600.0f, 600.0f, 600.0f));
-	_skyboxObject.transformMatrix = meshScale;
-}
-
-
-void Render::System::upload_mesh(Mesh& mesh)
-{
 	auto* backend = Render::Backend::AcquireInstance();
 
-	vk::BufferUsageFlags vertexBufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
-		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
-		vk::BufferUsageFlagBits::eStorageBuffer;
+	const auto& models = _pScene->models;
 
-	Render::Buffer::CreateInfo vertexBufferInfo = {};
-	vertexBufferInfo.usage = vertexBufferUsage;
-	vertexBufferInfo.allocSize = mesh._vertices.size() * sizeof(Vertex);
-	vertexBufferInfo.memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+	for (const auto& [name, model] : models)
+	{
+		for (const Plume::Mesh& mesh : model.meshes)
+		{
+			Render::Object object = {};
+			object.model = &model;
+			object.transformMatrix = model.transformMatrix;
+			object.mesh = backend->UploadMesh(mesh);
 
-	mesh._vertexBuffer = backend->CreateBuffer(vertexBufferInfo);
-
-	backend->UploadBufferImmediately(mesh._vertexBuffer, mesh._vertices);
-
-
-	vk::BufferUsageFlags indexBufferUsage = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst |
-		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
-		vk::BufferUsageFlagBits::eStorageBuffer;
-
-	Render::Buffer::CreateInfo indexBufferInfo = {};
-	indexBufferInfo.usage = indexBufferUsage;
-	indexBufferInfo.allocSize = mesh._indices.size() * sizeof(uint32_t);
-	indexBufferInfo.memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
-
-	mesh._indexBuffer = backend->CreateBuffer(indexBufferInfo);
-
-	backend->UploadBufferImmediately(mesh._indexBuffer, mesh._indices);
+			if (name != "skybox")
+			{
+				_renderables.push_back(std::move(object));
+			}
+			else
+			{
+				_skyboxObject = std::move(object);
+			}
+		}
+	}
 }
 
 
@@ -1106,22 +1026,7 @@ void Render::System::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspe
 	cmd.copyImage(srcImage, srcImageLayout, dstImage, dstImageLayout, copyInfo);
 }
 
-
-Model* Render::System::get_model(const std::string& name)
-{
-	auto it = _scene._models.find(name);
-	if (it == _scene._models.end())
-	{
-		return nullptr;
-	}
-	else
-	{
-		return &(*it).second;
-	}
-}
-
-
-void Render::System::upload_cam_scene_data(RenderObject* first, size_t count)
+void Render::System::upload_cam_scene_data(Render::Object* first, size_t count)
 {
 	ASSERT(_pCamera != nullptr, "Invalid camera");
 	ASSERT(_pLightManager != nullptr, "Invalid light manager");
@@ -1151,16 +1056,16 @@ void Render::System::upload_cam_scene_data(RenderObject* first, size_t count)
 
 	for (int32_t i = 0; i < count; ++i)
 	{
-		RenderObject& object = first[i];
+		Render::Object& object = first[i];
 		objectSsboVector[i].model = object.transformMatrix;
-		if (object.mesh)
+		if (object.mesh.pEngineMesh)
 		{
-			uint64_t indexAddress = object.mesh->_indexBuffer.GetDeviceAddress();
-			uint64_t vertexAddress = object.mesh->_vertexBuffer.GetDeviceAddress();
-			objectSsboVector[i].matIndex = object.mesh->_matIndex;
+			uint64_t indexAddress = object.mesh.indexBuffer.GetDeviceAddress();
+			uint64_t vertexAddress = object.mesh.vertexBuffer.GetDeviceAddress();
+			objectSsboVector[i].matIndex = object.mesh.pEngineMesh->matIndex;
 			objectSsboVector[i].indexBufferAddress = indexAddress;
 			objectSsboVector[i].vertexBufferAddress = vertexAddress;
-			objectSsboVector[i].emittance = object.mesh->_emittance;
+			objectSsboVector[i].emittance = object.mesh.pEngineMesh->emittance;
 		}
 	}
 
@@ -1172,7 +1077,7 @@ void Render::System::gbuffer_geometry_pass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	auto geometryPassId = static_cast<int32_t>(RenderPassType::eGeometryPass);
+	auto geometryPassId = static_cast<int32_t>(Render::Pass::Type::eGeometryPass);
 	backend->DrawObjects(_renderables, _renderPasses[geometryPassId], nullptr, true);
 }
 
@@ -1181,7 +1086,7 @@ void Render::System::gbuffer_lighting_pass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	auto lightingPassId = static_cast<int32_t>(RenderPassType::eLightingPass);
+	auto lightingPassId = static_cast<int32_t>(Render::Pass::Type::eLightingPass);
 	backend->DrawScreenQuad(_renderPasses[lightingPassId], nullptr, true);
 }
 
@@ -1190,7 +1095,7 @@ void Render::System::sky_pass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	std::vector<RenderObject> skyObj = {
+	std::vector<Render::Object> skyObj = {
 		_skyboxObject
 	};
 
@@ -1202,7 +1107,7 @@ void Render::System::sky_pass()
 	pcInfo.size = sizeof(MeshPushConstants);
 	pcInfo.shaderStages = vk::ShaderStageFlagBits::eVertex;
 
-	auto skyPassId = static_cast<int32_t>(RenderPassType::eSky);
+	auto skyPassId = static_cast<int32_t>(Render::Pass::Type::eSky);
 	backend->DrawObjects(skyObj, _renderPasses[skyPassId], &pcInfo, true);
 }
 
@@ -1218,7 +1123,7 @@ void Render::System::fxaa_pass()
 	pcInfo.size = sizeof(fxaaOn);
 	pcInfo.shaderStages = vk::ShaderStageFlagBits::eFragment;
 
-	auto postprocessPassId = static_cast<int32_t>(RenderPassType::ePostprocess);
+	auto postprocessPassId = static_cast<int32_t>(Render::Pass::Type::ePostprocess);
 
 	_renderPasses[postprocessPassId].SetSwapchainImage(backend->_swapchainImages[backend->_swapchainImageIndex]);
 
@@ -1237,7 +1142,7 @@ void Render::System::denoiser_pass()
 	pcInfo.size = sizeof(denoisingOn);
 	pcInfo.shaderStages = vk::ShaderStageFlagBits::eFragment;
 
-	auto postprocessPassId = static_cast<int32_t>(RenderPassType::ePostprocess);
+	auto postprocessPassId = static_cast<int32_t>(Render::Pass::Type::ePostprocess);
 
 	_renderPasses[postprocessPassId].SetSwapchainImage(backend->_swapchainImages[backend->_swapchainImageIndex]);
 
@@ -1286,7 +1191,7 @@ void Render::System::path_tracing_pass()
 	pcInfo.size = sizeof(_rayConstants);
 	pcInfo.shaderStages = vk::ShaderStageFlagBits::eRaygenKHR;
 
-	auto pathTracingPassId = static_cast<int32_t>(RenderPassType::ePathTracing);
+	auto pathTracingPassId = static_cast<int32_t>(Render::Pass::Type::ePathTracing);
 	backend->TraceRays(_renderPasses[pathTracingPassId], &pcInfo, true);
 }
 

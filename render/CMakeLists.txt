@@ -10,8 +10,6 @@ target_sources(plume PUBLIC
     render_shader.h
     render_core.cpp
     render_core.h
-    render_mesh.cpp
-    render_mesh.h
     render_rt_backend_utils.cpp
     render_rt_backend_utils.h
     render_texture_utils.cpp

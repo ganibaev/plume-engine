@@ -1,7 +1,11 @@
 #include "render_core.h"
-#include "render_mesh.h"
 #include "render_shader.h"
 #include "VkBootstrap.h"
+
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
+
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -589,13 +593,54 @@ void Render::Backend::RegisterAccelerationStructure(RegisteredDescriptorSet desc
 }
 
 
+Render::Mesh Render::Backend::UploadMesh(const Plume::Mesh& engineMesh)
+{
+	Render::Mesh gpuMesh = {};
+	gpuMesh.pEngineMesh = &engineMesh;
+	gpuMesh.numOfIndices = engineMesh.indices.size();
+
+	vk::BufferUsageFlags vertexBufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+		vk::BufferUsageFlagBits::eStorageBuffer;
+
+	Render::Buffer::CreateInfo vertexBufferInfo = {};
+	vertexBufferInfo.usage = vertexBufferUsage;
+	vertexBufferInfo.allocSize = engineMesh.vertices.size() * sizeof(Vertex);
+	vertexBufferInfo.memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	gpuMesh.vertexBuffer = CreateBuffer(vertexBufferInfo);
+
+	UploadBufferImmediately(gpuMesh.vertexBuffer, engineMesh.vertices);
+
+
+	vk::BufferUsageFlags indexBufferUsage = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst |
+		vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+		vk::BufferUsageFlagBits::eStorageBuffer;
+
+	Render::Buffer::CreateInfo indexBufferInfo = {};
+	indexBufferInfo.usage = indexBufferUsage;
+	indexBufferInfo.allocSize = engineMesh.indices.size() * sizeof(uint32_t);
+	indexBufferInfo.memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	gpuMesh.indexBuffer = CreateBuffer(indexBufferInfo);
+
+	UploadBufferImmediately(gpuMesh.indexBuffer, engineMesh.indices);
+
+	return gpuMesh;
+}
+
+
 Render::Backend::BLASInput Render::Backend::ConvertMeshToBlasInput(const Mesh& mesh, vk::GeometryFlagBitsKHR rtGeometryFlags)
 {
-	vk::DeviceAddress vertexAddress = mesh._vertexBuffer.GetDeviceAddress();
-	vk::DeviceAddress indexAddress = mesh._indexBuffer.GetDeviceAddress();
+	vk::DeviceAddress vertexAddress = mesh.vertexBuffer.GetDeviceAddress();
+	vk::DeviceAddress indexAddress = mesh.indexBuffer.GetDeviceAddress();
 
-	uint32_t maxVertices = static_cast<uint32_t>(mesh._indices.size());
-	uint32_t maxPrimCount = static_cast<uint32_t>(mesh._indices.size()) / 3;
+	ASSERT(mesh.pEngineMesh != nullptr, "Invalid engine mesh");
+
+	const Plume::Mesh& engineMesh = *mesh.pEngineMesh;
+
+	uint32_t maxVertices = static_cast<uint32_t>(engineMesh.indices.size());
+	uint32_t maxPrimCount = static_cast<uint32_t>(engineMesh.indices.size()) / 3;
 
 	BLASInput blasInput = {};
 
@@ -744,7 +789,7 @@ void Render::Backend::Present()
 }
 
 
-void Render::Backend::DrawObjects(const std::vector<RenderObject>& objects, const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo /* = nullptr */, bool useCamLightingBuffer /* = false */)
+void Render::Backend::DrawObjects(const std::vector<Render::Object>& objects, const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo /* = nullptr */, bool useCamLightingBuffer /* = false */)
 {
 	if (pass._swapchainTargetId > -1)
 	{
@@ -768,7 +813,7 @@ void Render::Backend::DrawObjects(const std::vector<RenderObject>& objects, cons
 
 	for (int32_t i = 0; i < objects.size(); ++i)
 	{
-		const RenderObject& object = objects[i];
+		const Render::Object& object = objects[i];
 
 		if (!object.model)
 		{
@@ -793,10 +838,10 @@ void Render::Backend::DrawObjects(const std::vector<RenderObject>& objects, cons
 		}
 
 		vk::DeviceSize offset = 0;
-		cmd.bindVertexBuffers(0, object.mesh->_vertexBuffer.GetHandle(), offset);
-		cmd.bindIndexBuffer(object.mesh->_indexBuffer.GetHandle(), offset, vk::IndexType::eUint32);
+		cmd.bindVertexBuffers(0, object.mesh.vertexBuffer.GetHandle(), offset);
+		cmd.bindIndexBuffer(object.mesh.indexBuffer.GetHandle(), offset, vk::IndexType::eUint32);
 
-		cmd.drawIndexed(static_cast<uint32_t>(object.mesh->_indices.size()), 1, 0, 0, i);
+		cmd.drawIndexed(static_cast<uint32_t>(object.mesh.numOfIndices), 1, 0, 0, i);
 	}
 
 	cmd.endRendering();
@@ -1040,17 +1085,19 @@ void Render::Backend::InitRaytracingProperties()
 
 void Render::Backend::InitSamplers()
 {
-	vk::SamplerCreateInfo linearClampSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+	vk::SamplerCreateInfo linearClampSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear, -1.0f,
 		1.0, vk::SamplerAddressMode::eClampToEdge);
 	
 	auto linearClampSamplerId = static_cast<size_t>(Render::SamplerType::eLinearClamp);
 	_samplers[linearClampSamplerId] = _device.createSampler(linearClampSamplerInfo);
 
 
-	vk::SamplerCreateInfo linearRepeatSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear,
+	float maxAnisotropy = _gpuProperties.properties.limits.maxSamplerAnisotropy;
+
+	vk::SamplerCreateInfo linearRepeatSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear, maxAnisotropy,
 		VK_LOD_CLAMP_NONE, vk::SamplerAddressMode::eRepeat);
 
-	auto linearRepeatSamplerId = static_cast<size_t>(Render::SamplerType::eLinearRepeat);
+	auto linearRepeatSamplerId = static_cast<size_t>(Render::SamplerType::eLinearRepeatAnisotropic);
 	_samplers[linearRepeatSamplerId] = _device.createSampler(linearRepeatSamplerInfo);
 
 	_mainDeletionQueue.push_function([=]() {

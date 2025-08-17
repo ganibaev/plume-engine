@@ -4,13 +4,13 @@
 #include "render_initializers.h"
 #include "render_descriptors.h"
 #include "render_shader.h"
+#include "../engine/plm_scene.h"
 #include <thread>
 #include <memory>
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
-class Mesh;
 class Vertex;
 
 namespace Render
@@ -86,7 +86,7 @@ private:
 enum class SamplerType
 {
 	eLinearClamp = 0,
-	eLinearRepeat,
+	eLinearRepeatAnisotropic,
 };
 
 
@@ -130,8 +130,20 @@ private:
 };
 
 
+struct Mesh
+{
+	const Plume::Mesh* pEngineMesh = nullptr;
+
+	Render::Buffer vertexBuffer;
+	Render::Buffer indexBuffer;
+
+	size_t numOfIndices = 0;
+};
+
+
 class Pass;
 class System;
+class Object;
 
 class Backend
 {
@@ -189,6 +201,8 @@ public:
 		const std::vector<Render::DescriptorManager::BufferInfo>& bufferInfos, uint32_t binding, uint32_t numDescs = 1, bool isPerFrame = false);
 	void RegisterAccelerationStructure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 		vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame = false);
+
+	Render::Mesh UploadMesh(const Plume::Mesh& engineMesh);
 
 	struct BLASInput
 	{
@@ -266,7 +280,7 @@ public:
 		vk::ShaderStageFlags shaderStages = {};
 	};
 
-	void DrawObjects(const std::vector<RenderObject>& objects, const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo = nullptr, bool useCamLightingBuffer = false);
+	void DrawObjects(const std::vector<Object>& objects, const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo = nullptr, bool useCamLightingBuffer = false);
 	void DrawScreenQuad(const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo = nullptr, bool useCamLightingBuffer = false);
 
 	void TraceRays(const Render::Pass& pass, PushConstantsInfo* pPushConstantsInfo = nullptr, bool useCamLightingBuffer = false);
@@ -349,6 +363,18 @@ class Pass
 	friend Backend;
 
 public:
+	enum class Type
+	{
+		eNone,
+		eGeometryPass = 0,
+		eLightingPass,
+		ePostprocess,
+		eSky,
+		ePathTracing,
+
+		eMaxValue
+	};
+
 	struct AttachmentStateInfo
 	{
 		bool blendEnable = false;
@@ -453,6 +479,14 @@ private:
 	void BuildRTPipeline(const std::array<vk::PipelineShaderStageCreateInfo, Render::Pass::RAY_TRACING_SHADER_GROUP_COUNT>& shaderStages);
 
 	PipelineState _pso;
+};
+
+
+struct Object
+{
+	Mesh mesh;
+	const Plume::Model* model;
+	glm::mat4 transformMatrix;
 };
 
 

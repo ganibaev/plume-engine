@@ -24,7 +24,7 @@ constexpr float SPEED = 20.0f;
 constexpr float SENSITIVITY = 0.1f;
 constexpr float ZOOM = 70.0f;
 
-constexpr float DRAW_DISTANCE = 6000.0f;
+constexpr float DRAW_DISTANCE = 250000.0f;
 
 
 namespace Plume

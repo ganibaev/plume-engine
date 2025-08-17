@@ -1,13 +1,14 @@
 #include "plm_lights.h"
 
 
-void Plume::LightManager::Init()
+void Plume::LightManager::DefaultInit()
 {
 	// Set up default lighting
-	// TODO: Read static lighting from the scene description
+	// TODO: Read lighting from the scene description
+
 	Light dirLight = {};
 	dirLight.type = LightType::eDirectional;
-	dirLight.direction = glm::vec3(glm::normalize(glm::vec3(0.0f, -30.0f, -10.0f)));
+	dirLight.direction = glm::vec3(glm::normalize(glm::vec3(0.0f, -30.0f, 10.0f)));
 	dirLight.color = glm::vec3{ 253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f };
 	dirLight.intensity = 1.0f;
 	AddDirectionalLight(dirLight);

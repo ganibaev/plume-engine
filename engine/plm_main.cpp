@@ -5,15 +5,19 @@
 void main(int argc, char* argv[])
 {
 	Plume::InputManager inputSystem;
-	Plume::LightManager lightManager;
-	Plume::RenderManager renderer;
 
-	lightManager.Init();
+	Plume::Scene scene;
+	scene.DefaultInit();
+
+	Plume::LightManager lightManager;
+	lightManager.DefaultInit();
 
 	Render::System::InitData initData;
 	initData.pCam = inputSystem.get_p_camera();
 	initData.pLightManager = &lightManager;
+	initData.pScene = &scene;
 
+	Plume::RenderManager renderer;
 	renderer.init(initData);
 
 	while (!inputSystem.should_quit())

@@ -10,10 +10,10 @@
 
 #include "../engine/plm_camera.h"
 #include "../engine/plm_lights.h"
+#include "../engine/plm_scene.h"
 
 #include "render_core.h"
 #include "render_descriptors.h"
-#include "render_mesh.h"
 
 #include <glm/glm.hpp>
 
@@ -70,6 +70,7 @@ public:
 	{
 		const Plume::LightManager* pLightManager = nullptr;
 		const Plume::Camera* pCam = nullptr;
+		const Plume::Scene* pScene = nullptr;
 
 		SDL_Window* pWindow = nullptr;
 		vk::Extent2D windowExtent{ 0, 0 };
@@ -94,7 +95,7 @@ public:
 
 	std::unordered_set<std::string> _supportedExtensions;
 
-	Scene _scene;
+	const Plume::Scene* _pScene = nullptr;
 
 	const Plume::LightManager* _pLightManager = nullptr;
 
@@ -138,18 +139,16 @@ public:
 	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
 		vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent);
 
-	std::vector<RenderObject> _renderables;
+	std::vector<Render::Object> _renderables;
 
-	std::array<Render::Pass, static_cast<size_t>(RenderPassType::eMaxValue)> _renderPasses;
+	std::array<Render::Pass, static_cast<size_t>(Render::Pass::Type::eMaxValue)> _renderPasses;
 
 	std::unordered_map<std::string, std::array<Render::Image, NUM_TEXTURE_TYPES>> _loadedTextures;
 
 	Render::Image _skybox;
-	RenderObject _skyboxObject;
+	Render::Object _skyboxObject;
 
-	Model* get_model(const std::string& name);
-
-	void upload_cam_scene_data(RenderObject* first, size_t count);
+	void upload_cam_scene_data(Render::Object* first, size_t count);
 
 	void gbuffer_geometry_pass();
 	void gbuffer_lighting_pass();
@@ -177,9 +176,7 @@ private:
 	void init_path_tracing_gbuffer_images();
 	void init_path_tracing_pass();
 
-	void init_scene();
-
-	void load_meshes();
+	void init_render_scene();
 
 	void init_blas();
 

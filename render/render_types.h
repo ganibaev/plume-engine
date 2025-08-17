@@ -19,18 +19,6 @@
 constexpr uint32_t FRAME_OVERLAP = 3;
 
 
-enum class RenderPassType
-{
-	eGeometryPass = 0,
-	eLightingPass,
-	ePostprocess,
-	eSky,
-	ePathTracing,
-
-	eMaxValue
-};
-
-
 struct AccelerationStructure
 {
 	vk::AccelerationStructureKHR _structure;
@@ -48,14 +36,6 @@ struct AccelerationStructureBuild
 
 	AccelerationStructure _as;
 	AccelerationStructure _cleanupAs;
-};
-
-
-struct RenderObject
-{
-	struct Mesh* mesh;
-	struct Model* model;
-	glm::mat4 transformMatrix;
 };
 
 

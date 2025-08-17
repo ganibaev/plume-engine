@@ -39,7 +39,7 @@ public:
 		int32_t id = -1;
 	};
 
-	void Init();
+	void DefaultInit();
 
 	const Light& GetDirectionalLight() const { return _lights[DIRECTIONAL_LIGHT_ID]; }
 	const Light& GetAmbientLight() const { return _lights[AMBIENT_LIGHT_ID]; }

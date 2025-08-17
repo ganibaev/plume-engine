@@ -117,7 +117,7 @@ vk::WriteDescriptorSet vkinit::write_descriptor_buffer(vk::DescriptorType type, 
 }
 
 
-vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = VK_SAMPLER_ADDRESS_MODE_REPEAT */)
+vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, float anisotropy /* = -1.0f */, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = vk::SamplerAddressMode::eRepeat */)
 {
 	vk::SamplerCreateInfo info = {};
 	
@@ -131,6 +131,9 @@ vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filt
 	info.minLod = 0.0f;
 	info.maxLod = maxLod;
 	info.mipLodBias = 0.0f;
+
+	info.anisotropyEnable = anisotropy >= 0.0f;
+	info.maxAnisotropy = anisotropy;
 	
 	return info;
 }
