@@ -15,7 +15,7 @@ struct ConfigurationVariables
 };
 
 
-constexpr int NUM_TEXTURE_TYPES = 4;
+constexpr int NUM_MATERIAL_TEXTURE_TYPES = 4;
 
 constexpr int NUM_GBUFFER_ATTACHMENTS = 4;
 

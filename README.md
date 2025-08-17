@@ -15,7 +15,7 @@ It has two modes of rendering: path tracing and hybrid (rasterization + ray trac
 
 Both modes use normal mapping, texturing with an arbitrary number of bindless textures; path tracing mode uses camera jittering, motion vectors, temporal sample accumulation, Russian roulette path termination, shader execution reordering and a simple denoiser, while hybrid mode uses deferred shading with dynamic rendering, has real-time ray traced shadows, PBR materials and FXAA.
 
-You can press F2 to enable a Dear ImGui window with various configuration options, press F8 to just show the cursor and be able to move it, zoom in and out via mouse scroll wheel, or press ESC to close the engine.
+You can press F2 to enable a Dear ImGui window with various configuration options (for example, to get images like in pics 1-3, turn Use Motion Vectors off), press F8 to just show the cursor and be able to move it, zoom in and out via mouse scroll wheel, or press ESC to close the engine.
 
 ## Running the code
 
@@ -32,7 +32,7 @@ msbuild plume.sln
 ```
 The executable will be located in `{project-root}/build/bin/Debug/plume.exe`.
 
-By default, Vulkan validation layers are enabled in Debug mode and disabled in Release mode. To switch between hybrid and path tracing modes (for now) you should change the variable `RenderSystem::_renderMode` on line 128 in the `render/render_system.h` file.
+By default, Vulkan validation layers are enabled in Debug mode and disabled in Release mode. To switch between hybrid and path tracing modes (for now) you should change the variable `RenderSystem::_renderMode` on line 79 in the `render/render_system.h` file.
 
 ## Acknowledgements
 

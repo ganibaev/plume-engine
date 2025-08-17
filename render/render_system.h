@@ -1,7 +1,7 @@
 ﻿#pragma once
 
-#include "render_types.h"
-#include "render_cfg.h"
+#include "core/render_types.h"
+#include "core/render_cfg.h"
 #include <vector>
 #include <tuple>
 #include <string>
@@ -12,8 +12,8 @@
 #include "../engine/plm_lights.h"
 #include "../engine/plm_scene.h"
 
-#include "render_core.h"
-#include "render_descriptors.h"
+#include "core/render_core.h"
+#include "core/render_descriptors.h"
 
 #include "render_path_tracing.h"
 
@@ -76,7 +76,7 @@ public:
 
 	bool _isInitialized = false;
 
-	constexpr static RenderMode _renderMode = RenderMode::eHybrid;
+	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
 
 	void InitBackendAndData(const InitData& initData);
 
@@ -135,7 +135,7 @@ public:
 
 	std::array<Render::Pass, static_cast<size_t>(Render::Pass::Type::eMaxValue)> _renderPasses;
 
-	std::unordered_map<std::string, std::array<Render::Image, NUM_TEXTURE_TYPES>> _loadedTextures;
+	std::unordered_map<std::string, std::array<Render::Image, NUM_MATERIAL_TEXTURE_TYPES>> _loadedTextures;
 
 	Render::Image _skybox;
 	Render::Object _skyboxObject;

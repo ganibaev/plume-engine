@@ -1,11 +1,11 @@
 ﻿#include "render_system.h"
 
-#include "render_initializers.h"
+#include "core/render_initializers.h"
 
-#include "render_texture_utils.h"
+#include "core/render_texture_utils.h"
 #include "render_lights.h"
-#include "render_rt_backend_utils.h"
-#include "render_shader.h"
+#include "core/render_rt_backend_utils.h"
+#include "core/render_shader.h"
 
 #include <unordered_map>
 
