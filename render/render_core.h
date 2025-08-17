@@ -4,6 +4,7 @@
 #include "render_initializers.h"
 #include "render_descriptors.h"
 #include "render_shader.h"
+#include "render_cfg.h"
 #include "../engine/plm_scene.h"
 #include <thread>
 #include <memory>
@@ -15,17 +16,6 @@ class Vertex;
 
 namespace Render
 {
-
-struct ConfigurationVariables
-{
-	bool DENOISING = true;
-	bool TEMPORAL_ACCUMULATION = true;
-	bool MOTION_VECTORS = true;
-	bool SHADER_EXECUTION_REORDERING = true;
-	bool FXAA = true;
-	int32_t MAX_BOUNCES = 11;
-};
-
 
 class Image
 {

@@ -194,6 +194,7 @@ void Render::Backend::Init()
 
 	vk::PhysicalDeviceFeatures miscFeatures;
 	miscFeatures.shaderInt64 = VK_TRUE;
+	miscFeatures.samplerAnisotropy = VK_TRUE;
 
 	vk::PhysicalDeviceVulkan13Features v13Features;
 	v13Features.synchronization2 = VK_TRUE;

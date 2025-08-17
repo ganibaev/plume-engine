@@ -18,6 +18,8 @@ target_sources(plume PUBLIC
     render_cfg.h
     render_lights.cpp
     render_lights.h
+    render_path_tracing.cpp
+    render_path_tracing.h
 )
 
 target_include_directories(plume PUBLIC

@@ -15,6 +15,8 @@
 #include "render_core.h"
 #include "render_descriptors.h"
 
+#include "render_path_tracing.h"
+
 #include <glm/glm.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -50,11 +52,7 @@ struct MeshPushConstants
 
 struct FrameContext
 {
-	Render::Image prevFrameImage;
 	Render::Image depthImage;
-
-	Render::Image ptPositionImage;
-	Render::Image prevPositionImage;
 
 	Render::Buffer camLightingBuffer;
 };
@@ -78,7 +76,7 @@ public:
 
 	bool _isInitialized = false;
 
-	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
+	constexpr static RenderMode _renderMode = RenderMode::eHybrid;
 
 	void InitBackendAndData(const InitData& initData);
 
@@ -111,16 +109,10 @@ public:
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
 
-	RayPushConstants _rayConstants = {};
-
 	void SwitchSwapchainImageLayout(uint32_t swapchainImageIndex, bool beforeRendering);
 	void SwitchIntermediateImageLayout(bool beforeRendering);
-	void SwitchFrameImageLayout(Render::Image& image);
 
 	FrameContext _frameCtx;
-
-	// effectively remove frame accumulation limit for path tracing, but reserve it for future use
-	int _maxAccumFrames = 60000;
 
 	vk::PipelineRenderingCreateInfo _geometryPassPipelineInfo;
 	vk::PipelineRenderingCreateInfo _lightingPassPipelineInfo;
@@ -158,11 +150,7 @@ public:
 
 	void DebugUIPass(vk::CommandBuffer cmd, vk::ImageView targetImageView);
 
-	void PathTracingPass();
-
 private:
-	void InitFrameContext();
-
 	void InitGBufferImages();
 
 	void InitDescriptors();
@@ -173,16 +161,11 @@ private:
 	void InitPostprocessPass();
 	void InitSkyPass();
 
-	void InitPathTracingGBufferImages();
-	void InitPathTracingPass();
-
 	void InitRenderScene();
 
 	void InitBLAS();
 
 	void InitTLAS();
-
-	void InitRTDescriptors();
 
 	bool LoadMaterialTexture(Render::Image& tex, const std::string& texName, const std::string& matName,
 		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);
@@ -191,9 +174,7 @@ private:
 
 	void LoadImages();
 
-	void ResetFrame();
-
-	void UpdateRTFrame();
+	Render::PathTracing _pathTracingManager;
 };
 
 } // namespace Render

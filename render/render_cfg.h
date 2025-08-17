@@ -1,6 +1,20 @@
 #pragma once
 #include <cstdint>
 
+namespace Render
+{
+
+struct ConfigurationVariables
+{
+	bool DENOISING = true;
+	bool TEMPORAL_ACCUMULATION = true;
+	bool MOTION_VECTORS = true;
+	bool SHADER_EXECUTION_REORDERING = true;
+	bool FXAA = true;
+	int32_t MAX_BOUNCES = 4;
+};
+
+
 constexpr int NUM_TEXTURE_TYPES = 4;
 
 constexpr int NUM_GBUFFER_ATTACHMENTS = 4;
@@ -18,3 +32,4 @@ constexpr uint32_t GBUFFER_METALLIC_ROUGHNESS_SLOT = 3;
 
 constexpr size_t MAX_BINDING_SLOTS_PER_SET = 20;
 
+} // namespace Render
