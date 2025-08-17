@@ -2,7 +2,7 @@
 #include "imgui_impl_sdl3.h"
 
 
-void Plume::InputManager::poll_events()
+void Plume::InputManager::PollEvents()
 {
 	float curFrameTime = static_cast<float>(SDL_GetTicks() / 1000.0f);
 	_deltaTime = curFrameTime - _lastFrameTime;
@@ -19,7 +19,7 @@ void Plume::InputManager::poll_events()
 	uint32_t queueId = 0;
 
 	// Handle events on queue
-	clear_event_queue();
+	ClearEventQueue();
 	while (SDL_PollEvent(&e) != 0)
 	{
 		if (queueId == MAX_FRAME_EVENT_NUM)
@@ -78,12 +78,12 @@ void Plume::InputManager::poll_events()
 		++queueId;
 	}
 
-	process_general_queue_events();
-	process_movement();
+	ProcessGeneralQueueEvents();
+	ProcessMovement();
 }
 
 
-CameraMovement Plume::InputManager::sdl_key_to_movement(SDL_Keycode sym)
+CameraMovement Plume::InputManager::SDLKeyToMovement(SDL_Keycode sym)
 {
 	CameraMovement movement = CameraMovement::NONE;
 
@@ -115,7 +115,7 @@ CameraMovement Plume::InputManager::sdl_key_to_movement(SDL_Keycode sym)
 }
 
 
-void Plume::InputManager::clear_event_queue()
+void Plume::InputManager::ClearEventQueue()
 {
 	for (Event& queueEvent : _eventQueue)
 	{
@@ -124,7 +124,7 @@ void Plume::InputManager::clear_event_queue()
 }
 
 
-void Plume::InputManager::process_general_queue_events()
+void Plume::InputManager::ProcessGeneralQueueEvents()
 {
 	for (Event& queueEvent : _eventQueue)
 	{
@@ -140,7 +140,7 @@ void Plume::InputManager::process_general_queue_events()
 				break;
 			}
 
-			on_mouse_motion_callback();
+			OnMouseMotionCallback();
 			break;
 
 		case EventType::eMovement:
@@ -149,7 +149,7 @@ void Plume::InputManager::process_general_queue_events()
 				break;
 			}
 
-			on_keyboard_event_callback(queueEvent.keycode, true);
+			OnKeyboardEventCallback(queueEvent.keycode, true);
 			break;
 
 		case EventType::eMovementStop:
@@ -158,7 +158,7 @@ void Plume::InputManager::process_general_queue_events()
 				break;
 			}
 
-			on_keyboard_event_callback(queueEvent.keycode, false);
+			OnKeyboardEventCallback(queueEvent.keycode, false);
 			break;
 
 		case EventType::eZoom:
@@ -167,7 +167,7 @@ void Plume::InputManager::process_general_queue_events()
 				break;
 			}
 
-			on_mouse_scroll_callback(queueEvent.scrollY);
+			OnMouseScrollCallback(queueEvent.scrollY);
 			break;
 
 		case EventType::eQuit:
@@ -181,7 +181,7 @@ void Plume::InputManager::process_general_queue_events()
 }
 
 
-void Plume::InputManager::on_mouse_motion_callback()
+void Plume::InputManager::OnMouseMotionCallback()
 {
 	float outRelX = 0;
 	float outRelY = 0;
@@ -191,34 +191,34 @@ void Plume::InputManager::on_mouse_motion_callback()
 	float xOffset = outRelX;
 	float yOffset = -outRelY;
 
-	_camera.process_camera_motion(xOffset, yOffset);
+	_camera.ProcessCameraMotion(xOffset, yOffset);
 }
 
 
-void Plume::InputManager::on_mouse_scroll_callback(float yOffset)
+void Plume::InputManager::OnMouseScrollCallback(float yOffset)
 {
-	_camera.process_mouse_scroll(yOffset);
+	_camera.ProcessMouseScroll(yOffset);
 }
 
 
-void Plume::InputManager::process_movement()
+void Plume::InputManager::ProcessMovement()
 {
 	for (size_t i = 0; i < static_cast<size_t>(CameraMovement::MAX_ENUM); ++i)
 	{
 		auto movementType = static_cast<CameraMovement>(i);
-		bool movementActive = _camera.is_movement_active(movementType);
+		bool movementActive = _camera.IsMovementActive(movementType);
 
 		if (movementActive)
 		{
-			_camera.process_movement(movementType, _deltaTime);
+			_camera.ProcessMovement(movementType, _deltaTime);
 		}
 	}
 }
 
 
-void Plume::InputManager::on_keyboard_event_callback(SDL_Keycode sym, bool keyDown)
+void Plume::InputManager::OnKeyboardEventCallback(SDL_Keycode sym, bool keyDown)
 {
-	CameraMovement movement = sdl_key_to_movement(sym);
+	CameraMovement movement = SDLKeyToMovement(sym);
 
-	_camera.set_movement_status(movement, keyDown);
+	_camera.SetMovementStatus(movement, keyDown);
 }

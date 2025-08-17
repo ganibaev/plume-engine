@@ -1,7 +1,7 @@
 ﻿#include "render_initializers.h"
 
 
-vk::CommandBufferBeginInfo vkinit::command_buffer_begin_info(vk::CommandBufferUsageFlags flags /* = 0 */)
+vk::CommandBufferBeginInfo vkinit::CmdBeginInfo(vk::CommandBufferUsageFlags flags /* = 0 */)
 {
 	vk::CommandBufferBeginInfo info = {};
 	info.pInheritanceInfo = nullptr;
@@ -10,7 +10,7 @@ vk::CommandBufferBeginInfo vkinit::command_buffer_begin_info(vk::CommandBufferUs
 }
 
 
-vk::CommandBufferAllocateInfo vkinit::command_buffer_allocate_info(vk::CommandPool pool)
+vk::CommandBufferAllocateInfo vkinit::CmdAllocateInfo(vk::CommandPool pool)
 {
 	vk::CommandBufferAllocateInfo cmdAllocInfo = {};
 	cmdAllocInfo.commandPool = pool;
@@ -20,7 +20,7 @@ vk::CommandBufferAllocateInfo vkinit::command_buffer_allocate_info(vk::CommandPo
 }
 
 
-vk::SubmitInfo vkinit::submit_info(vk::CommandBuffer* cmd)
+vk::SubmitInfo vkinit::CmdSubmitInfo(vk::CommandBuffer* cmd)
 {
 	vk::SubmitInfo info = {};
 	info.waitSemaphoreCount = 0;
@@ -35,7 +35,7 @@ vk::SubmitInfo vkinit::submit_info(vk::CommandBuffer* cmd)
 }
 
 
-vk::SemaphoreCreateInfo vkinit::semaphore_create_info(vk::SemaphoreCreateFlags flags /* = 0 */)
+vk::SemaphoreCreateInfo vkinit::SemaphoreCreateInfo(vk::SemaphoreCreateFlags flags /* = 0 */)
 {
 	vk::SemaphoreCreateInfo semaphoreCreateInfo = {};
 	semaphoreCreateInfo.flags = flags;
@@ -43,7 +43,7 @@ vk::SemaphoreCreateInfo vkinit::semaphore_create_info(vk::SemaphoreCreateFlags f
 }
 
 
-vk::FenceCreateInfo vkinit::fence_create_info(vk::FenceCreateFlags flags)
+vk::FenceCreateInfo vkinit::FenceCreateInfo(vk::FenceCreateFlags flags)
 {
 	vk::FenceCreateInfo fenceCreateInfo = {};
 	fenceCreateInfo.flags = flags;
@@ -51,7 +51,7 @@ vk::FenceCreateInfo vkinit::fence_create_info(vk::FenceCreateFlags flags)
 }
 
 
-vk::ShaderModuleCreateInfo vkinit::sm_create_info(const std::vector<uint32_t>& buffer)
+vk::ShaderModuleCreateInfo vkinit::ShaderModuleInfo(const std::vector<uint32_t>& buffer)
 {
 	vk::ShaderModuleCreateInfo smCreateInfo = {};
 	// in bytes
@@ -62,7 +62,7 @@ vk::ShaderModuleCreateInfo vkinit::sm_create_info(const std::vector<uint32_t>& b
 }
 
 
-vk::RenderingAttachmentInfo vkinit::rendering_attachment_info(vk::ImageView imageView, vk::ImageLayout imageLayout,
+vk::RenderingAttachmentInfo vkinit::RenderAttachmentInfo(vk::ImageView imageView, vk::ImageLayout imageLayout,
 	vk::AttachmentLoadOp loadOp, vk::AttachmentStoreOp storeOp, vk::ClearValue clearValue)
 {
 	vk::RenderingAttachmentInfo attachmentInfo;
@@ -77,7 +77,7 @@ vk::RenderingAttachmentInfo vkinit::rendering_attachment_info(vk::ImageView imag
 }
 
 
-vk::PipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
+vk::PipelineLayoutCreateInfo vkinit::PipelineLayoutInfo()
 {
 	vk::PipelineLayoutCreateInfo info = {};
 
@@ -90,7 +90,7 @@ vk::PipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
 }
 
 
-vk::DescriptorSetLayoutBinding vkinit::descriptor_set_layout_binding(vk::DescriptorType type, vk::ShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount /* = 1 */)
+vk::DescriptorSetLayoutBinding vkinit::SetLayoutBinding(vk::DescriptorType type, vk::ShaderStageFlags stageFlags, uint32_t binding, uint32_t descCount /* = 1 */)
 {
 	vk::DescriptorSetLayoutBinding setBind = {};
 	setBind.binding = binding;
@@ -103,7 +103,7 @@ vk::DescriptorSetLayoutBinding vkinit::descriptor_set_layout_binding(vk::Descrip
 }
 
 
-vk::WriteDescriptorSet vkinit::write_descriptor_buffer(vk::DescriptorType type, vk::DescriptorSet dstSet, vk::DescriptorBufferInfo* bufferInfo, uint32_t binding)
+vk::WriteDescriptorSet vkinit::WriteDescriptorBuffer(vk::DescriptorType type, vk::DescriptorSet dstSet, vk::DescriptorBufferInfo* bufferInfo, uint32_t binding)
 {
 	vk::WriteDescriptorSet write = {};
 
@@ -117,7 +117,7 @@ vk::WriteDescriptorSet vkinit::write_descriptor_buffer(vk::DescriptorType type, 
 }
 
 
-vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filter minFilter, float anisotropy /* = -1.0f */, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = vk::SamplerAddressMode::eRepeat */)
+vk::SamplerCreateInfo vkinit::SamplerInfo(vk::Filter magFilter, vk::Filter minFilter, float anisotropy /* = -1.0f */, float maxLod /* = VK_LOD_CLAMP_NONE */, vk::SamplerAddressMode samplerAddressMode /* = vk::SamplerAddressMode::eRepeat */)
 {
 	vk::SamplerCreateInfo info = {};
 	
@@ -139,7 +139,7 @@ vk::SamplerCreateInfo vkinit::sampler_create_info(vk::Filter magFilter, vk::Filt
 }
 
 
-vk::WriteDescriptorSet vkinit::write_descriptor_image(vk::DescriptorType type, vk::DescriptorSet dstSet, vk::DescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount /* = 1 */)
+vk::WriteDescriptorSet vkinit::WriteDescriptorImage(vk::DescriptorType type, vk::DescriptorSet dstSet, vk::DescriptorImageInfo* imageInfo, uint32_t binding, uint32_t descriptorCount /* = 1 */)
 {
 	vk::WriteDescriptorSet write = {};
 

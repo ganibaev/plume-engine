@@ -14,7 +14,7 @@
 #include "imgui_impl_vulkan.h"
 
 
-void Render::System::init_backend_and_data(const Render::System::InitData& initData)
+void Render::System::InitBackendAndData(const Render::System::InitData& initData)
 {
 	_pCamera = initData.pCam;
 	_pLightManager = initData.pLightManager;
@@ -33,33 +33,33 @@ void Render::System::init_backend_and_data(const Render::System::InitData& initD
 }
 
 
-void Render::System::init(const Render::System::InitData& initData)
+void Render::System::Init(const Render::System::InitData& initData)
 {
-	init_backend_and_data(initData);
+	InitBackendAndData(initData);
 
 	Render::Backend* backend = Render::Backend::AcquireInstance();
 
-	init_frame_context();
+	InitFrameContext();
 
-	init_gbuffer_images();
+	InitGBufferImages();
 
-	init_path_tracing_gbuffer_images();
+	InitPathTracingGBufferImages();
 
-	load_images();
+	LoadImages();
 
-	init_descriptors();
+	InitDescriptors();
 
-	init_render_scene();
+	InitRenderScene();
 
-	init_blas();
+	InitBLAS();
 
-	init_tlas();
+	InitTLAS();
 
-	init_rt_descriptors();
+	InitRTDescriptors();
 
 	backend->AllocateDescriptorSets();
 
-	init_passes();
+	InitPasses();
 
 	backend->UpdateDescriptorSets();
 
@@ -68,7 +68,7 @@ void Render::System::init(const Render::System::InitData& initData)
 }
 
 
-void Render::System::switch_intermediate_image_layout(bool beforeRendering)
+void Render::System::SwitchIntermediateImageLayout(bool beforeRendering)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -105,7 +105,7 @@ void Render::System::switch_intermediate_image_layout(bool beforeRendering)
 }
 
 
-void Render::System::switch_swapchain_image_layout(uint32_t swapchainImageIndex, bool beforeRendering)
+void Render::System::SwitchSwapchainImageLayout(uint32_t swapchainImageIndex, bool beforeRendering)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -131,7 +131,7 @@ void Render::System::switch_swapchain_image_layout(uint32_t swapchainImageIndex,
 }
 
 
-void Render::System::switch_frame_image_layout(Render::Image& image)
+void Render::System::SwitchFrameImageLayout(Render::Image& image)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -146,7 +146,7 @@ void Render::System::switch_frame_image_layout(Render::Image& image)
 }
 
 
-void Render::System::init_frame_context()
+void Render::System::InitFrameContext()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -160,7 +160,7 @@ void Render::System::init_frame_context()
 }
 
 
-void Render::System::init_gbuffer_images()
+void Render::System::InitGBufferImages()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -202,7 +202,7 @@ void Render::System::init_gbuffer_images()
 }
 
 
-void Render::System::init_descriptors()
+void Render::System::InitDescriptors()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -290,7 +290,7 @@ void Render::System::init_descriptors()
 }
 
 
-void Render::System::init_geometry_pass()
+void Render::System::InitGeometryPass()
 {
 	Render::Pass::InitInfo geometryPassInfo = {};
 
@@ -325,7 +325,7 @@ void Render::System::init_geometry_pass()
 }
 
 
-void Render::System::init_lighting_pass()
+void Render::System::InitLightingPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -362,7 +362,7 @@ void Render::System::init_lighting_pass()
 }
 
 
-void Render::System::init_postprocess_pass()
+void Render::System::InitPostprocessPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -411,7 +411,7 @@ void Render::System::init_postprocess_pass()
 }
 
 
-void Render::System::init_sky_pass()
+void Render::System::InitSkyPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -449,7 +449,7 @@ void Render::System::init_sky_pass()
 }
 
 
-void Render::System::init_path_tracing_gbuffer_images()
+void Render::System::InitPathTracingGBufferImages()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -497,7 +497,7 @@ void Render::System::init_path_tracing_gbuffer_images()
 }
 
 
-void Render::System::init_path_tracing_pass()
+void Render::System::InitPathTracingPass()
 {
 	Render::Pass::RTInitInfo pathTracingPassInfo = {};
 
@@ -523,21 +523,21 @@ void Render::System::init_path_tracing_pass()
 }
 
 
-void Render::System::init_passes()
+void Render::System::InitPasses()
 {
-	init_geometry_pass();
+	InitGeometryPass();
 
-	init_lighting_pass();
+	InitLightingPass();
 
-	init_postprocess_pass();
+	InitPostprocessPass();
 
-	init_sky_pass();
+	InitSkyPass();
 
-	init_path_tracing_pass();
+	InitPathTracingPass();
 }
 
 
-void Render::System::init_blas()
+void Render::System::InitBLAS()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -551,11 +551,11 @@ void Render::System::init_blas()
 		blasInputs.emplace_back(backend->ConvertMeshToBlasInput(_renderables[i].mesh, blasGeometryFlags));
 	}
 
-	RenderBackendRTUtils::buildBlas(this, blasInputs);
+	RenderBackendRTUtils::BuildBLAS(this, blasInputs);
 }
 
 
-void Render::System::init_tlas()
+void Render::System::InitTLAS()
 {
 	std::vector<vk::AccelerationStructureInstanceKHR> tlas;
 	tlas.reserve(_renderables.size() - 1);
@@ -563,16 +563,16 @@ void Render::System::init_tlas()
 	for (uint32_t i = 0; i < _renderables.size() - 1; ++i)
 	{
 		vk::AccelerationStructureInstanceKHR accelInst;
-		accelInst.setTransform(RenderBackendRTUtils::convertToTransformKHR(_renderables[i].transformMatrix));
+		accelInst.setTransform(RenderBackendRTUtils::ConvertToTransformKHR(_renderables[i].transformMatrix));
 		accelInst.setInstanceCustomIndex(i);
-		accelInst.setAccelerationStructureReference(RenderBackendRTUtils::getBlasDeviceAddress(this, i));
+		accelInst.setAccelerationStructureReference(RenderBackendRTUtils::GetBLASDeviceAddress(this, i));
 		accelInst.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 		accelInst.setMask(0xFF);
 
 		tlas.emplace_back(accelInst);
 	}
 
-	RenderBackendRTUtils::buildTlas(this, tlas);
+	RenderBackendRTUtils::BuildTLAS(this, tlas);
 
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -584,7 +584,7 @@ void Render::System::init_tlas()
 }
 
 
-void Render::System::init_rt_descriptors()
+void Render::System::InitRTDescriptors()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -617,10 +617,10 @@ void Render::System::init_rt_descriptors()
 }
 
 
-bool Render::System::load_material_texture(Render::Image& tex, const std::string& texName, const std::string& matName,
+bool Render::System::LoadMaterialTexture(Render::Image& tex, const std::string& texName, const std::string& matName,
 	uint32_t texSlot, bool generateMipmaps/* = true */, vk::Format format/* = vk::Format::eR8G8B8A8Srgb */)
 {
-	if (texName.empty() || !RenderUtil::load_image_from_file(this, texName, tex, generateMipmaps, format))
+	if (texName.empty() || !RenderUtil::LoadImageFromFile(this, texName, tex, generateMipmaps, format))
 	{
 		return false;
 	}
@@ -631,7 +631,7 @@ bool Render::System::load_material_texture(Render::Image& tex, const std::string
 }
 
 
-void Render::System::load_skybox(Render::Image& skybox, const std::string& directory)
+void Render::System::LoadSkybox(Render::Image& skybox, const std::string& directory)
 {
 	std::vector<std::string> files = {
 		"px.png", "nx.png",
@@ -644,11 +644,11 @@ void Render::System::load_skybox(Render::Image& skybox, const std::string& direc
 		files[i] = directory + files[i];
 	}
 
-	ASSERT(RenderUtil::load_cubemap_from_files(this, files, skybox), "Failed to load skybox");
+	ASSERT(RenderUtil::LoadCubemapFromFiles(this, files, skybox), "Failed to load skybox");
 }
 
 
-void Render::System::load_images()
+void Render::System::LoadImages()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -656,7 +656,7 @@ void Render::System::load_images()
 
 	Render::Image defaultTex = {};
 
-	RenderUtil::load_image_from_file(this, "../../../assets/null-texture.png", defaultTex);
+	RenderUtil::LoadImageFromFile(this, "../../../assets/null-texture.png", defaultTex);
 
 	Render::DescriptorManager::ImageInfo texInfo;
 	texInfo.imageType = vk::DescriptorType::eCombinedImageSampler;
@@ -674,7 +674,7 @@ void Render::System::load_images()
 
 		if (!scene.diffuseTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(diffuse, scene.diffuseTexNames[i], scene.matNames[i], DIFFUSE_TEX_SLOT);
+			bool loadRes = LoadMaterialTexture(diffuse, scene.diffuseTexNames[i], scene.matNames[i], DIFFUSE_TEX_SLOT);
 
 			if (!loadRes)
 			{
@@ -702,7 +702,7 @@ void Render::System::load_images()
 
 		if (!scene.metallicTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(metallic, scene.metallicTexNames[i], scene.matNames[i], METALLIC_TEX_SLOT);
+			bool loadRes = LoadMaterialTexture(metallic, scene.metallicTexNames[i], scene.matNames[i], METALLIC_TEX_SLOT);
 
 			if (!loadRes)
 			{
@@ -730,7 +730,7 @@ void Render::System::load_images()
 
 		if (!scene.roughnessTexNames[i].empty())
 		{
-			bool loadRes = load_material_texture(roughness, scene.roughnessTexNames[i], scene.matNames[i], ROUGHNESS_TEX_SLOT);
+			bool loadRes = LoadMaterialTexture(roughness, scene.roughnessTexNames[i], scene.matNames[i], ROUGHNESS_TEX_SLOT);
 
 			if (!loadRes)
 			{
@@ -753,7 +753,7 @@ void Render::System::load_images()
 
 	Render::Image defaultNormal = {};
 
-	RenderUtil::load_image_from_file(this, "../../../assets/null-normal.png", defaultNormal, true,
+	RenderUtil::LoadImageFromFile(this, "../../../assets/null-normal.png", defaultNormal, true,
 		vk::Format::eR32G32B32A32Sfloat);
 
 	std::vector<Render::DescriptorManager::ImageInfo> normalMapInfos(scene.normalMapNames.size());
@@ -761,7 +761,7 @@ void Render::System::load_images()
 	{
 		Render::Image normalMap = {};
 
-		bool loadRes = load_material_texture(normalMap, scene.normalMapNames[i], scene.matNames[i], NORMAL_MAP_SLOT,
+		bool loadRes = LoadMaterialTexture(normalMap, scene.normalMapNames[i], scene.matNames[i], NORMAL_MAP_SLOT,
 			true, vk::Format::eR32G32B32A32Sfloat);
 
 		if (!loadRes)
@@ -782,7 +782,7 @@ void Render::System::load_images()
 		0, static_cast<uint32_t>(scene.normalMapNames.size()), true);
 
 
-	load_skybox(_skybox, "../../../assets/skybox/");
+	LoadSkybox(_skybox, "../../../assets/skybox/");
 
 	Render::DescriptorManager::ImageInfo skyboxInfo;
 	skyboxInfo.imageView = _skybox.GetView();
@@ -795,13 +795,13 @@ void Render::System::load_images()
 }
 
 
-void Render::System::reset_frame()
+void Render::System::ResetFrame()
 {
 	_rayConstants.frame = -1;
 }
 
 
-void Render::System::update_rt_frame()
+void Render::System::UpdateRTFrame()
 {
 	ASSERT(_pCamera != nullptr, "Invalid camera");
 
@@ -813,7 +813,7 @@ void Render::System::update_rt_frame()
 	static float refFov = camera._zoom;
 	static glm::vec3 refPosition{ 0.0f };
 
-	const glm::mat4 m = camera.get_view_matrix();
+	const glm::mat4 m = camera.GetViewMatrix();
 	const float fov = camera._zoom;
 	const glm::vec3 position = camera._position;
 
@@ -825,14 +825,14 @@ void Render::System::update_rt_frame()
 		refPosition = position;
 		if (!backend->_renderCfg.MOTION_VECTORS)
 		{
-			reset_frame();
+			ResetFrame();
 		}
 	}
 	++_rayConstants.frame;
 }
 
 
-void Render::System::init_render_scene()
+void Render::System::InitRenderScene()
 {
 	ASSERT(_pScene != nullptr, "Invalid scene");
 
@@ -862,7 +862,7 @@ void Render::System::init_render_scene()
 }
 
 
-void Render::System::cleanup()
+void Render::System::Cleanup()
 {
 	if (!_isInitialized)
 	{
@@ -877,26 +877,26 @@ void Render::System::cleanup()
 }
 
 
-void Render::System::render_frame()
+void Render::System::RenderFrame()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
 	backend->BeginFrameRendering();
 
-	switch_intermediate_image_layout(true);
+	SwitchIntermediateImageLayout(true);
 
 	if (_renderMode == RenderMode::ePathTracing)
 	{
-		switch_frame_image_layout(_frameCtx.prevFrameImage);
+		SwitchFrameImageLayout(_frameCtx.prevFrameImage);
 	}
 	
 	// ========================================   RENDERING   ========================================
 
-	upload_cam_scene_data(_renderables.data(), _renderables.size());
+	UploadCamSceneData(_renderables.data(), _renderables.size());
 
 	if (_renderMode == RenderMode::eHybrid)
 	{
-		gbuffer_geometry_pass();
+		GBufferGeometryPass();
 
 		Render::Image::TransitionInfo gbufferTransitionInfo = {};
 		gbufferTransitionInfo.dstAccessMask = vk::AccessFlagBits::eMemoryRead;
@@ -909,15 +909,15 @@ void Render::System::render_frame()
 		_gBufferImages[GBUFFER_ALBEDO_SLOT].LayoutTransition(gbufferTransitionInfo);
 		_gBufferImages[GBUFFER_METALLIC_ROUGHNESS_SLOT].LayoutTransition(gbufferTransitionInfo);
 
-		gbuffer_lighting_pass();
+		GBufferLightingPass();
 
-		sky_pass();
+		SkyPass();
 
-		switch_intermediate_image_layout(false);
+		SwitchIntermediateImageLayout(false);
 
-		switch_swapchain_image_layout(backend->_swapchainImageIndex, true);
+		SwitchSwapchainImageLayout(backend->_swapchainImageIndex, true);
 
-		fxaa_pass();
+		FXAAPass();
 	}
 	else if (_renderMode == RenderMode::ePathTracing)
 	{
@@ -934,7 +934,7 @@ void Render::System::render_frame()
 
 		_frameCtx.prevPositionImage.LayoutTransition(preRenderPrevPosTransition);
 
-		path_tracing_pass();
+		PathTracingPass();
 
 
 		Render::Image::TransitionInfo copySrcTransition = {};
@@ -971,23 +971,23 @@ void Render::System::render_frame()
 		backend->CopyImage(backend->_intermediateImage, _frameCtx.prevFrameImage);
 		backend->CopyImage(_frameCtx.ptPositionImage, _frameCtx.prevPositionImage);
 
-		switch_intermediate_image_layout(false);
+		SwitchIntermediateImageLayout(false);
 
-		switch_swapchain_image_layout(backend->_swapchainImageIndex, true);
+		SwitchSwapchainImageLayout(backend->_swapchainImageIndex, true);
 
-		denoiser_pass();
+		DenoiserPass();
 	}
 
 	if (_showDebugUi)
 	{
-		debug_ui_pass(backend->GetCurrentCommandBuffer(), backend->_swapchainImages[backend->_swapchainImageIndex].GetView());
+		DebugUIPass(backend->GetCurrentCommandBuffer(), backend->_swapchainImages[backend->_swapchainImageIndex].GetView());
 	}
 
 	// ======================================== END RENDERING ========================================
 
 	// transfer swapchain image to presentable layout
 
-	switch_swapchain_image_layout(backend->_swapchainImageIndex, false);
+	SwitchSwapchainImageLayout(backend->_swapchainImageIndex, false);
 
 	_prevCamera = *_pCamera;
 
@@ -999,7 +999,7 @@ void Render::System::render_frame()
 }
 
 
-vk::DeviceSize Render::System::align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment)
+vk::DeviceSize Render::System::AlignUp(vk::DeviceSize originalSize, vk::DeviceSize alignment)
 {
 	vk::DeviceSize alignedSize = originalSize;
 	if (alignment > 0)
@@ -1010,7 +1010,7 @@ vk::DeviceSize Render::System::align_up(vk::DeviceSize originalSize, vk::DeviceS
 }
 
 
-void Render::System::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
+void Render::System::CopyImage(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
 	vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent)
 {
 	vk::ImageCopy copyInfo;
@@ -1026,7 +1026,7 @@ void Render::System::copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspe
 	cmd.copyImage(srcImage, srcImageLayout, dstImage, dstImageLayout, copyInfo);
 }
 
-void Render::System::upload_cam_scene_data(Render::Object* first, size_t count)
+void Render::System::UploadCamSceneData(Render::Object* first, size_t count)
 {
 	ASSERT(_pCamera != nullptr, "Invalid camera");
 	ASSERT(_pLightManager != nullptr, "Invalid light manager");
@@ -1041,8 +1041,8 @@ void Render::System::upload_cam_scene_data(Render::Object* first, size_t count)
 
 	const Plume::Camera& camera = *_pCamera;
 
-	camLightingData.camData = camera.make_gpu_camera_data(_prevCamera, { backend->_windowExtent.width, backend->_windowExtent.height });
-	camLightingData.lightingData = Render::LightManager::make_lighting_data(_pLightManager->GetLights());
+	camLightingData.camData = camera.MakeGPUCameraData(_prevCamera, { backend->_windowExtent.width, backend->_windowExtent.height });
+	camLightingData.lightingData = Render::LightManager::MakeLightingData(_pLightManager->GetLights());
 
 	size_t camLightingDataBufferSize = backend->PadUniformBufferSize(sizeof(CamLightingData));
 
@@ -1073,7 +1073,7 @@ void Render::System::upload_cam_scene_data(Render::Object* first, size_t count)
 }
 
 
-void Render::System::gbuffer_geometry_pass()
+void Render::System::GBufferGeometryPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -1082,7 +1082,7 @@ void Render::System::gbuffer_geometry_pass()
 }
 
 
-void Render::System::gbuffer_lighting_pass()
+void Render::System::GBufferLightingPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -1091,7 +1091,7 @@ void Render::System::gbuffer_lighting_pass()
 }
 
 
-void Render::System::sky_pass()
+void Render::System::SkyPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -1112,7 +1112,7 @@ void Render::System::sky_pass()
 }
 
 
-void Render::System::fxaa_pass()
+void Render::System::FXAAPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -1131,7 +1131,7 @@ void Render::System::fxaa_pass()
 }
 
 
-void Render::System::denoiser_pass()
+void Render::System::DenoiserPass()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -1150,11 +1150,11 @@ void Render::System::denoiser_pass()
 }
 
 
-void Render::System::debug_ui_pass(vk::CommandBuffer cmd, vk::ImageView targetImageView)
+void Render::System::DebugUIPass(vk::CommandBuffer cmd, vk::ImageView targetImageView)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::rendering_attachment_info(targetImageView,
+	vk::RenderingAttachmentInfo uiAttachmentInfo = vkinit::RenderAttachmentInfo(targetImageView,
 		vk::ImageLayout::eColorAttachmentOptimal, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, {});
 
 	vk::RenderingInfo uiRenderInfo;
@@ -1170,9 +1170,9 @@ void Render::System::debug_ui_pass(vk::CommandBuffer cmd, vk::ImageView targetIm
 }
 
 
-void Render::System::path_tracing_pass()
+void Render::System::PathTracingPass()
 {
-	update_rt_frame();
+	UpdateRTFrame();
 
 	if (_rayConstants.frame >= _maxAccumFrames)
 	{
@@ -1196,7 +1196,7 @@ void Render::System::path_tracing_pass()
 }
 
 
-void Render::System::setup_debug_ui_frame()
+void Render::System::SetupDebugUIFrame()
 {
 	if (!_showDebugUi)
 	{
@@ -1220,7 +1220,7 @@ void Render::System::setup_debug_ui_frame()
 		ImGui::Checkbox("Use Motion Vectors", &backend->_renderCfg.MOTION_VECTORS);
 		if (backend->_renderCfg.MOTION_VECTORS != prevMv)
 		{
-			reset_frame();
+			ResetFrame();
 		}
 		ImGui::Checkbox("Use Shader Execution Reordering", &backend->_renderCfg.SHADER_EXECUTION_REORDERING);
 	}

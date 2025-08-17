@@ -3,7 +3,7 @@
 #include "render_initializers.h"
 
 
-void Render::DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
+void Render::DescriptorManager::Init(vk::Device* pDevice, DeletionQueue* pDeletionQueue)
 {
 	_pDevice = pDevice;
 	_pDeletionQueue = pDeletionQueue;
@@ -17,7 +17,7 @@ void Render::DescriptorManager::init(vk::Device* pDevice, DeletionQueue* pDeleti
 	}
 }
 
-void Render::DescriptorManager::allocate_sets()
+void Render::DescriptorManager::AllocateSets()
 {
 	std::vector<vk::DescriptorPoolSize> poolSizes = {
 		{ vk::DescriptorType::eUniformBuffer, 10 },
@@ -68,7 +68,7 @@ void Render::DescriptorManager::allocate_sets()
 			set.setLayout = _pDevice->createDescriptorSetLayout(layoutInfo);
 		}
 
-		_pDeletionQueue->push_function([=]() {
+		_pDeletionQueue->PushFunction([=]() {
 			_pDevice->destroyDescriptorSetLayout(set.setLayout);
 		});
 
@@ -132,12 +132,12 @@ void Render::DescriptorManager::allocate_sets()
 		}
 	}
 
-	_pDeletionQueue->push_function([=]() {
+	_pDeletionQueue->PushFunction([=]() {
 		_pDevice->destroyDescriptorPool(_pool);
 	});
 }
 
-void Render::DescriptorManager::update_sets()
+void Render::DescriptorManager::UpdateSets()
 {
 	std::vector<vk::WriteDescriptorSet> bulkWrites;
 	bulkWrites.reserve(_setQueue.size() * FRAME_OVERLAP);
@@ -157,7 +157,7 @@ void Render::DescriptorManager::update_sets()
 	_pDevice->updateDescriptorSets(bulkWrites, {});
 }
 
-void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::RegisterBuffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	const std::vector<BufferInfo>& bufferInfos, uint32_t binding, uint32_t numDescs /* = 1 */, bool isPerFrame /* = false */)
 {
 	DescriptorSetInfo& set = _setQueue[static_cast<uint16_t>(descriptorSetType)];
@@ -175,7 +175,7 @@ void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descript
 
 			set.bufferInfos.push_back(bufferInfo);
 
-			vk::WriteDescriptorSet bufferWrite = vkinit::write_descriptor_buffer(
+			vk::WriteDescriptorSet bufferWrite = vkinit::WriteDescriptorBuffer(
 				bufferInfos[i].bufferType, set.sets[i], &(set.bufferInfos.back()), binding);
 
 			set.writes.push_back(bufferWrite);
@@ -191,7 +191,7 @@ void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descript
 
 		set.bufferInfos.push_back(bufferInfo);
 
-		vk::WriteDescriptorSet bufferWrite = vkinit::write_descriptor_buffer(
+		vk::WriteDescriptorSet bufferWrite = vkinit::WriteDescriptorBuffer(
 			bufferInfos[0].bufferType, set.sets[0], &(set.bufferInfos.back()), binding);
 
 		set.writes.push_back(bufferWrite);
@@ -203,13 +203,13 @@ void Render::DescriptorManager::register_buffer(RegisteredDescriptorSet descript
 		set.layoutBindings.resize(binding + 1);
 	}
 
-	vk::DescriptorSetLayoutBinding setBinding = vkinit::descriptor_set_layout_binding(bufferInfos[0].bufferType,
+	vk::DescriptorSetLayoutBinding setBinding = vkinit::SetLayoutBinding(bufferInfos[0].bufferType,
 		shaderStages, binding, numDescs);
 
 	set.layoutBindings[binding] = setBinding;
 }
 
-void Render::DescriptorManager::register_image(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::RegisterImage(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	const std::vector<ImageInfo>& imageInfos, uint32_t binding, uint32_t numDescs /* = 1 */, bool isBindless /* = false */,
 	bool isPerFrame /* = false */)
 {
@@ -227,7 +227,7 @@ void Render::DescriptorManager::register_image(RegisteredDescriptorSet descripto
 
 			set.imageInfos.push_back(newInfo);
 
-			vk::WriteDescriptorSet imageWrite = vkinit::write_descriptor_image(imageInfos[i].imageType, set.sets[i],
+			vk::WriteDescriptorSet imageWrite = vkinit::WriteDescriptorImage(imageInfos[i].imageType, set.sets[i],
 				&(set.imageInfos.back()), binding, numDescs);
 
 			set.writes.push_back(imageWrite);
@@ -256,7 +256,7 @@ void Render::DescriptorManager::register_image(RegisteredDescriptorSet descripto
 				}
 			}
 
-			vk::WriteDescriptorSet imageWrite = vkinit::write_descriptor_image(imageInfos[0].imageType, set.sets[0],
+			vk::WriteDescriptorSet imageWrite = vkinit::WriteDescriptorImage(imageInfos[0].imageType, set.sets[0],
 				writeStart, binding, numDescs);
 
 			set.writes.push_back(imageWrite);
@@ -271,7 +271,7 @@ void Render::DescriptorManager::register_image(RegisteredDescriptorSet descripto
 
 			set.imageInfos.push_back(imageInfo);
 
-			vk::WriteDescriptorSet imageWrite = vkinit::write_descriptor_image(imageInfos[0].imageType, set.sets[0],
+			vk::WriteDescriptorSet imageWrite = vkinit::WriteDescriptorImage(imageInfos[0].imageType, set.sets[0],
 				&(set.imageInfos.back()), binding, numDescs);
 
 			set.writes.push_back(imageWrite);
@@ -284,13 +284,13 @@ void Render::DescriptorManager::register_image(RegisteredDescriptorSet descripto
 		set.layoutBindings.resize(binding + 1);
 	}
 
-	vk::DescriptorSetLayoutBinding setBinding = vkinit::descriptor_set_layout_binding(imageInfos[0].imageType,
+	vk::DescriptorSetLayoutBinding setBinding = vkinit::SetLayoutBinding(imageInfos[0].imageType,
 		shaderStages, binding, numDescs);
 
 	set.layoutBindings[binding] = setBinding;
 }
 
-void Render::DescriptorManager::register_accel_structure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+void Render::DescriptorManager::RegisterAccelStructure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame /* = false */)
 {
 	DescriptorSetInfo& set = _setQueue[static_cast<uint16_t>(descriptorSetType)];
@@ -342,13 +342,13 @@ void Render::DescriptorManager::register_accel_structure(RegisteredDescriptorSet
 		set.layoutBindings.resize(binding + 1);
 	}
 
-	vk::DescriptorSetLayoutBinding setBinding = vkinit::descriptor_set_layout_binding(vk::DescriptorType::eAccelerationStructureKHR,
+	vk::DescriptorSetLayoutBinding setBinding = vkinit::SetLayoutBinding(vk::DescriptorType::eAccelerationStructureKHR,
 		shaderStages, binding);
 
 	set.layoutBindings[binding] = setBinding;
 }
 
-std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(DescriptorSetFlags usedDscMask) const
+std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::GetLayouts(DescriptorSetFlags usedDscMask) const
 {
 	std::vector<vk::DescriptorSetLayout> layouts;
 
@@ -365,7 +365,7 @@ std::vector<vk::DescriptorSetLayout> Render::DescriptorManager::get_layouts(Desc
 	return layouts;
 }
 
-std::vector<vk::DescriptorSet> Render::DescriptorManager::get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const
+std::vector<vk::DescriptorSet> Render::DescriptorManager::GetDescriptorSets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const
 {
 	std::vector<vk::DescriptorSet> sets;
 

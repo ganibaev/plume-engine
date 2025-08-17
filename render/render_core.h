@@ -316,8 +316,8 @@ private:
 	void InitSamplers();
 	void InitImGui();
 
-	void AllocateDescriptorSets() { _descMng.allocate_sets(); }
-	void UpdateDescriptorSets() { _descMng.update_sets(); }
+	void AllocateDescriptorSets() { _descMng.AllocateSets(); }
+	void UpdateDescriptorSets() { _descMng.UpdateSets(); }
 };
 
 

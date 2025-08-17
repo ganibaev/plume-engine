@@ -8,7 +8,7 @@
 #include "stb_image.h"
 
 
-bool RenderUtil::load_image_from_file(Render::System* renderSys, const std::string& fileName, Render::Image& outImage,
+bool RenderUtil::LoadImageFromFile(Render::System* renderSys, const std::string& fileName, Render::Image& outImage,
 	bool generateMipmaps/* = true */, vk::Format imageFormat/* = vk::Format::eR8G8B8A8Srgb */)
 {
 	int texWidth, texHeight, texChannels;
@@ -112,7 +112,7 @@ bool RenderUtil::load_image_from_file(Render::System* renderSys, const std::stri
 }
 
 
-bool RenderUtil::load_cubemap_from_files(Render::System* renderSys, const std::vector<std::string>& files,
+bool RenderUtil::LoadCubemapFromFiles(Render::System* renderSys, const std::vector<std::string>& files,
 	Render::Image& outImage)
 {
 	vk::DeviceSize imageSize = 0;

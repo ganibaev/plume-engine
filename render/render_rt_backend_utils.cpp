@@ -2,7 +2,7 @@
 #include "render_initializers.h"
 
 
-vk::TransformMatrixKHR RenderBackendRTUtils::convertToTransformKHR(const glm::mat4& glmTransform)
+vk::TransformMatrixKHR RenderBackendRTUtils::ConvertToTransformKHR(const glm::mat4& glmTransform)
 {
 	vk::TransformMatrixKHR res;
 
@@ -20,7 +20,7 @@ vk::TransformMatrixKHR RenderBackendRTUtils::convertToTransformKHR(const glm::ma
 }
 
 
-AccelerationStructure RenderBackendRTUtils::allocateAndBindAccel(vk::AccelerationStructureCreateInfoKHR& createInfo)
+AccelerationStructure RenderBackendRTUtils::AllocateAndBindAccel(vk::AccelerationStructureCreateInfoKHR& createInfo)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -43,7 +43,7 @@ AccelerationStructure RenderBackendRTUtils::allocateAndBindAccel(vk::Acceleratio
 }
 
 
-void RenderBackendRTUtils::cmdCreateBlas(vk::CommandBuffer cmd, std::vector<uint32_t>& indices,
+void RenderBackendRTUtils::CmdCreateBLAS(vk::CommandBuffer cmd, std::vector<uint32_t>& indices,
 	std::vector<AccelerationStructureBuild>& buildAs, vk::DeviceAddress scratchAddress, vk::QueryPool queryPool)
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -59,7 +59,7 @@ void RenderBackendRTUtils::cmdCreateBlas(vk::CommandBuffer cmd, std::vector<uint
 		vk::AccelerationStructureCreateInfoKHR blasCreateInfo;
 		blasCreateInfo.type = vk::AccelerationStructureTypeKHR::eBottomLevel;
 		blasCreateInfo.size = buildAs[index]._sizesInfo.accelerationStructureSize;
-		buildAs[index]._as = allocateAndBindAccel(blasCreateInfo);
+		buildAs[index]._as = AllocateAndBindAccel(blasCreateInfo);
 
 		buildAs[index]._geometryInfo.dstAccelerationStructure = buildAs[index]._as._structure;
 		buildAs[index]._geometryInfo.scratchData = scratchAddress;
@@ -85,7 +85,7 @@ void RenderBackendRTUtils::cmdCreateBlas(vk::CommandBuffer cmd, std::vector<uint
 }
 
 
-void RenderBackendRTUtils::cmdCompactBlas(vk::CommandBuffer cmd, std::vector<uint32_t>& indices,
+void RenderBackendRTUtils::CmdCompactBLAS(vk::CommandBuffer cmd, std::vector<uint32_t>& indices,
 	std::vector<AccelerationStructureBuild>& buildAs, vk::QueryPool queryPool)
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -104,7 +104,7 @@ void RenderBackendRTUtils::cmdCompactBlas(vk::CommandBuffer cmd, std::vector<uin
 		vk::AccelerationStructureCreateInfoKHR accelCreateInfo;
 		accelCreateInfo.size = buildAs[index]._sizesInfo.accelerationStructureSize;
 		accelCreateInfo.type = vk::AccelerationStructureTypeKHR::eBottomLevel;
-		buildAs[index]._as = allocateAndBindAccel(accelCreateInfo);
+		buildAs[index]._as = AllocateAndBindAccel(accelCreateInfo);
 
 		// copy original BLAS into its compact version
 		vk::CopyAccelerationStructureInfoKHR copyInfo;
@@ -117,7 +117,7 @@ void RenderBackendRTUtils::cmdCompactBlas(vk::CommandBuffer cmd, std::vector<uin
 }
 
 
-void RenderBackendRTUtils::destroyNonCompacted(std::vector<uint32_t>& indices, std::vector<AccelerationStructureBuild>& buildAs)
+void RenderBackendRTUtils::DestroyNonCompacted(std::vector<uint32_t>& indices, std::vector<AccelerationStructureBuild>& buildAs)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -127,7 +127,7 @@ void RenderBackendRTUtils::destroyNonCompacted(std::vector<uint32_t>& indices, s
 	}
 }
 
-void RenderBackendRTUtils::buildBlas(Render::System* renderSys, const std::vector<Render::Backend::BLASInput>& inputs,
+void RenderBackendRTUtils::BuildBLAS(Render::System* renderSys, const std::vector<Render::Backend::BLASInput>& inputs,
 	vk::BuildAccelerationStructureFlagsKHR flags /* = vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace */)
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -191,22 +191,22 @@ void RenderBackendRTUtils::buildBlas(Render::System* renderSys, const std::vecto
 		// if over limit, switch to another command buffer
 		if (batchSize >= batchLimit || i == numBlas - 1)
 		{
-			vk::CommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(cmdPool);
+			vk::CommandBufferAllocateInfo cmdAllocInfo = vkinit::CmdAllocateInfo(cmdPool);
 			vk::CommandBuffer newCmd = backend->GetPDevice()->allocateCommandBuffers(cmdAllocInfo)[0];
 			backend->SubmitCmdImmediately([&](vk::CommandBuffer cmd) {
-				cmdCreateBlas(cmd, blasIndices, buildAs, scratchAddress, queryPool);
+				CmdCreateBLAS(cmd, blasIndices, buildAs, scratchAddress, queryPool);
 			}, newCmd);
 
 			if (queryPool)
 			{
-				vk::CommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(cmdPool);
+				vk::CommandBufferAllocateInfo cmdAllocInfo = vkinit::CmdAllocateInfo(cmdPool);
 				vk::CommandBuffer newCmd = backend->GetPDevice()->allocateCommandBuffers(cmdAllocInfo)[0];
 				backend->SubmitCmdImmediately([&](vk::CommandBuffer cmd) {
-					cmdCompactBlas(cmd, blasIndices, buildAs, queryPool);
+					CmdCompactBLAS(cmd, blasIndices, buildAs, queryPool);
 				}, newCmd);
 
 				// destroy the non-compacted version of the BLAS
-				destroyNonCompacted(blasIndices, buildAs);
+				DestroyNonCompacted(blasIndices, buildAs);
 			}
 
 			// reset the info for next batch
@@ -219,7 +219,7 @@ void RenderBackendRTUtils::buildBlas(Render::System* renderSys, const std::vecto
 	for (auto& blas : buildAs)
 	{
 		renderSys->_bottomLevelASVec.emplace_back(blas._as);
-		backend->_mainDeletionQueue.push_function([=]() {
+		backend->_mainDeletionQueue.PushFunction([=]() {
 			backend->GetPDevice()->destroyAccelerationStructureKHR(blas._as._structure);
 		});
 	}
@@ -227,7 +227,7 @@ void RenderBackendRTUtils::buildBlas(Render::System* renderSys, const std::vecto
 	backend->GetPDevice()->destroyQueryPool(queryPool);
 }
 
-vk::DeviceAddress RenderBackendRTUtils::getBlasDeviceAddress(Render::System* renderSys, uint32_t blasId)
+vk::DeviceAddress RenderBackendRTUtils::GetBLASDeviceAddress(Render::System* renderSys, uint32_t blasId)
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
@@ -239,7 +239,7 @@ vk::DeviceAddress RenderBackendRTUtils::getBlasDeviceAddress(Render::System* ren
 	return backend->GetPDevice()->getAccelerationStructureAddressKHR(addressInfo);
 }
 
-void RenderBackendRTUtils::buildTlas(Render::System* renderSys, const std::vector<vk::AccelerationStructureInstanceKHR>& instances, bool update /* = false */,
+void RenderBackendRTUtils::BuildTLAS(Render::System* renderSys, const std::vector<vk::AccelerationStructureInstanceKHR>& instances, bool update /* = false */,
 	vk::BuildAccelerationStructureFlagsKHR flags /* = vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace */)
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -278,11 +278,11 @@ void RenderBackendRTUtils::buildTlas(Render::System* renderSys, const std::vecto
 
 		instanceBuffer.MemoryBarrier(cmd, instanceBufferBarrier);
 
-		cmdCreateTlas(renderSys, cmd, instanceCount, instBufferAddress, scratchBuffer,
+		CmdCreateTLAS(renderSys, cmd, instanceCount, instBufferAddress, scratchBuffer,
 			flags, update);
 	}, backend->GetUploadContext()._commandBuffer);
 	
-	backend->_mainDeletionQueue.push_function([=]() {
+	backend->_mainDeletionQueue.PushFunction([=]() {
 		backend->GetPDevice()->destroyAccelerationStructureKHR(renderSys->_topLevelAS._structure);
 	});
 
@@ -290,7 +290,7 @@ void RenderBackendRTUtils::buildTlas(Render::System* renderSys, const std::vecto
 	instanceBuffer.DestroyManually();
 }
 
-void RenderBackendRTUtils::cmdCreateTlas(Render::System* renderSys, vk::CommandBuffer cmd, uint32_t instanceCount, vk::DeviceAddress instBufferAddress,
+void RenderBackendRTUtils::CmdCreateTLAS(Render::System* renderSys, vk::CommandBuffer cmd, uint32_t instanceCount, vk::DeviceAddress instBufferAddress,
 	Render::Buffer& scratchBuffer, vk::BuildAccelerationStructureFlagsKHR flags, bool update /* = false */, bool motion /* = false */)
 {
 	auto* backend = Render::Backend::AcquireInstance();
@@ -316,7 +316,7 @@ void RenderBackendRTUtils::cmdCreateTlas(Render::System* renderSys, vk::CommandB
 	createInfo.type = vk::AccelerationStructureTypeKHR::eTopLevel;
 	createInfo.size = sizeInfo.accelerationStructureSize;
 
-	renderSys->_topLevelAS = allocateAndBindAccel(createInfo);
+	renderSys->_topLevelAS = AllocateAndBindAccel(createInfo);
 
 	Render::Buffer::CreateInfo scratchBufferInfo = {};
 	scratchBufferInfo.allocSize = sizeInfo.buildScratchSize;

@@ -42,12 +42,12 @@ struct AccelerationStructureBuild
 struct DeletionQueue {
 	std::deque<std::function<void()>> deleters;
 
-	void push_function(std::function<void()>&& function)
+	void PushFunction(std::function<void()>&& function)
 	{
 		deleters.push_back(function);
 	}
 
-	void flush()
+	void Flush()
 	{
 		for (auto& func : deleters)
 		{

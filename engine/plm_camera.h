@@ -49,38 +49,38 @@ public:
 	Camera(glm::vec3 position)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position)
 	{
-		update_camera_vectors();
+		UpdateCameraVectors();
 	}
 
 	Camera(glm::vec3 position, glm::vec3 up, float yaw = YAW, float pitch = PITCH)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(position), _worldUp(up), _yaw(yaw), _pitch(pitch)
 	{
-		update_camera_vectors();
+		UpdateCameraVectors();
 	}
 
 	Camera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch)
 		: _front(glm::vec3(0.0f, 0.0f, -1.0f)), _movementSpeed(SPEED), _mouseSensitivity(SENSITIVITY), _zoom(ZOOM), _position(glm::vec3(posX, posY, posZ)), _worldUp(glm::vec3(upX, upY, upZ)), _yaw(yaw), _pitch(pitch)
 	{
-		update_camera_vectors();
+		UpdateCameraVectors();
 	}
 
-	const glm::mat4 get_view_matrix() const
+	const glm::mat4 GetViewMatrix() const
 	{
 		return glm::lookAt(_position, _position + _front, _up);
 	}
 
-	void process_movement(CameraMovement direction, float timeDelta);
-	void process_camera_motion(float xOffset, float yOffset, bool constrainPitch = true);
-	void process_mouse_scroll(float yOffset);
+	void ProcessMovement(CameraMovement direction, float timeDelta);
+	void ProcessCameraMotion(float xOffset, float yOffset, bool constrainPitch = true);
+	void ProcessMouseScroll(float yOffset);
 
-	bool is_movement_active(CameraMovement movement) const { return _activeMovements[static_cast<size_t>(movement)]; }
-	void set_movement_status(CameraMovement movement, bool isActive) { _activeMovements[static_cast<size_t>(movement)] = isActive; }
+	bool IsMovementActive(CameraMovement movement) const { return _activeMovements[static_cast<size_t>(movement)]; }
+	void SetMovementStatus(CameraMovement movement, bool isActive) { _activeMovements[static_cast<size_t>(movement)] = isActive; }
 
-	CameraDataGPU make_gpu_camera_data(const Camera& lastFrameCamera, WindowExtent windowExtent) const;
+	CameraDataGPU MakeGPUCameraData(const Camera& lastFrameCamera, WindowExtent windowExtent) const;
 private:
 	std::array<bool, static_cast<size_t>(CameraMovement::MAX_ENUM)> _activeMovements = { false };
 
-	void update_camera_vectors();
+	void UpdateCameraVectors();
 };
 
 } // namespace Plume

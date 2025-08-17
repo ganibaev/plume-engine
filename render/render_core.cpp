@@ -268,7 +268,7 @@ void Render::Backend::Init()
 	InitSwapchain();
 	InitCommands();
 
-	_descMng.init(&_device, &_mainDeletionQueue);
+	_descMng.Init(&_device, &_mainDeletionQueue);
 
 	InitSyncStructures();
 	InitRaytracingProperties();
@@ -285,7 +285,7 @@ void Render::Backend::Terminate()
 	ASSERT_VK(_device.waitForFences(GetCurrentFrameData()._renderFence, true, 1000000000), "Render fence timeout");
 	++_frameId;
 
-	_mainDeletionQueue.flush();
+	_mainDeletionQueue.Flush();
 
 	vmaDestroyAllocator(_allocator);
 	_device.destroy();
@@ -386,7 +386,7 @@ Render::Image Render::Backend::CreateImage(const Image::CreateInfo& createInfo)
 
 	resImage._view = _device.createImageView(viewCreateInfo);
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		vmaDestroyImage(_allocator, resImage._handle, allocation);
 		_device.destroyImageView(resImage.GetView());
 	});
@@ -418,7 +418,7 @@ Render::Buffer Render::Backend::CreateBuffer(const Buffer::CreateInfo& createInf
 
 	if (createInfo.isLifetimeManaged)
 	{
-		_mainDeletionQueue.push_function([=]() {
+		_mainDeletionQueue.PushFunction([=]() {
 			vmaDestroyBuffer(_allocator, resBuffer._handle, resBuffer._allocation);
 		});
 	}
@@ -575,21 +575,21 @@ size_t Render::Backend::PadUniformBufferSize(size_t originalSize) const
 void Render::Backend::RegisterImage(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages, const std::vector<Render::DescriptorManager::ImageInfo>& imageInfos,
 	uint32_t binding, uint32_t numDescs /* = 1 */, bool isBindless /* = false */, bool isPerFrame /* = false */)
 {
-	_descMng.register_image(descriptorSetType, shaderStages, imageInfos, binding, numDescs, isBindless, isPerFrame);
+	_descMng.RegisterImage(descriptorSetType, shaderStages, imageInfos, binding, numDescs, isBindless, isPerFrame);
 }
 
 
 void Render::Backend::RegisterBuffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages, const std::vector<Render::DescriptorManager::BufferInfo>& bufferInfos,
 	uint32_t binding, uint32_t numDescs /* = 1 */, bool isPerFrame /* = false */)
 {
-	_descMng.register_buffer(descriptorSetType, shaderStages, bufferInfos, binding, numDescs, isPerFrame);
+	_descMng.RegisterBuffer(descriptorSetType, shaderStages, bufferInfos, binding, numDescs, isPerFrame);
 }
 
 
 void Render::Backend::RegisterAccelerationStructure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 	vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame /* = false */)
 {
-	_descMng.register_accel_structure(descriptorSetType, shaderStages, accelStructure, binding, isPerFrame);
+	_descMng.RegisterAccelStructure(descriptorSetType, shaderStages, accelStructure, binding, isPerFrame);
 }
 
 
@@ -820,7 +820,7 @@ void Render::Backend::DrawObjects(const std::vector<Render::Object>& objects, co
 			continue;
 		}
 
-		auto pipelineDescriptorSets = _descMng.get_descriptor_sets(pass._usedDescSets, frameInFlightId);
+		auto pipelineDescriptorSets = _descMng.GetDescriptorSets(pass._usedDescSets, frameInFlightId);
 
 		if (useCamLightingBuffer)
 		{
@@ -870,7 +870,7 @@ void Render::Backend::DrawScreenQuad(const Render::Pass& pass, PushConstantsInfo
 
 	int32_t frameInFlightId = _frameId % FRAME_OVERLAP;
 
-	auto pipelineDescriptorSets = _descMng.get_descriptor_sets(pass._usedDescSets, frameInFlightId);
+	auto pipelineDescriptorSets = _descMng.GetDescriptorSets(pass._usedDescSets, frameInFlightId);
 
 	if (useCamLightingBuffer)
 	{
@@ -908,7 +908,7 @@ void Render::Backend::TraceRays(const Render::Pass& pass, PushConstantsInfo* pPu
 
 	int32_t frameInFlightId = _frameId % FRAME_OVERLAP;
 
-	auto pipelineDescriptorSets = _descMng.get_descriptor_sets(pass._usedDescSets, frameInFlightId);
+	auto pipelineDescriptorSets = _descMng.GetDescriptorSets(pass._usedDescSets, frameInFlightId);
 
 	if (useCamLightingBuffer)
 	{
@@ -938,7 +938,7 @@ vk::CommandPool Render::Backend::CreateCommandPool(uint32_t queueFamilyIndex, vk
 	vk::CommandPool resCommandPool;
 	resCommandPool = _device.createCommandPool(commandPoolInfo);
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		_device.destroyCommandPool(resCommandPool);
 	});
 
@@ -960,7 +960,7 @@ vk::CommandBuffer Render::Backend::CreateCommandBuffer(vk::CommandPool pool, uin
 
 void Render::Backend::SubmitCmdImmediately(std::function<void(vk::CommandBuffer cmd)>&& function, vk::CommandBuffer cmd)
 {
-	vk::CommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+	vk::CommandBufferBeginInfo cmdBeginInfo = vkinit::CmdBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
 	cmd.begin(cmdBeginInfo);
 
@@ -968,7 +968,7 @@ void Render::Backend::SubmitCmdImmediately(std::function<void(vk::CommandBuffer 
 
 	cmd.end();
 
-	vk::SubmitInfo submitInfo = vkinit::submit_info(&cmd);
+	vk::SubmitInfo submitInfo = vkinit::CmdSubmitInfo(&cmd);
 
 	_graphicsQueue.submit(submitInfo, _uploadContext._uploadFence);
 
@@ -1008,7 +1008,7 @@ void Render::Backend::InitSwapchain()
 		_swapchainImages[i]._aspectMask = vk::ImageAspectFlagBits::eColor;
 	}
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		for (auto& image : _swapchainImages)
 		{
 			_device.destroyImageView(image.GetView());
@@ -1024,7 +1024,7 @@ void Render::Backend::InitSwapchain()
 
 	_intermediateImage = CreateImage(intermediateImageInfo);
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		_device.destroySwapchainKHR(_swapchain);
 	});
 }
@@ -1045,30 +1045,30 @@ void Render::Backend::InitCommands()
 
 void Render::Backend::InitSyncStructures()
 {
-	vk::FenceCreateInfo uploadFenceCreateInfo = vkinit::fence_create_info();
+	vk::FenceCreateInfo uploadFenceCreateInfo = vkinit::FenceCreateInfo();
 
 	_uploadContext._uploadFence = _device.createFence(uploadFenceCreateInfo);
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		_device.destroyFence(_uploadContext._uploadFence);
 		});
 
 	// create in the signaled state, so that the first wait call returns immediately
-	vk::FenceCreateInfo fenceCreateInfo = vkinit::fence_create_info(vk::FenceCreateFlagBits::eSignaled);
-	vk::SemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphore_create_info();
+	vk::FenceCreateInfo fenceCreateInfo = vkinit::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled);
+	vk::SemaphoreCreateInfo semaphoreCreateInfo = vkinit::SemaphoreCreateInfo();
 
 	for (int i = 0; i < FRAME_OVERLAP; ++i)
 	{
 		_frames[i]._renderFence = _device.createFence(fenceCreateInfo);
 
-		_mainDeletionQueue.push_function([=]() {
+		_mainDeletionQueue.PushFunction([=]() {
 			_device.destroyFence(_frames[i]._renderFence);
 		});
 
 		_frames[i]._renderSemaphore = _device.createSemaphore(semaphoreCreateInfo);
 		_frames[i]._presentSemaphore = _device.createSemaphore(semaphoreCreateInfo);
 
-		_mainDeletionQueue.push_function([=]() {
+		_mainDeletionQueue.PushFunction([=]() {
 			_device.destroySemaphore(_frames[i]._renderSemaphore);
 			_device.destroySemaphore(_frames[i]._presentSemaphore);
 		});
@@ -1085,7 +1085,7 @@ void Render::Backend::InitRaytracingProperties()
 
 void Render::Backend::InitSamplers()
 {
-	vk::SamplerCreateInfo linearClampSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear, -1.0f,
+	vk::SamplerCreateInfo linearClampSamplerInfo = vkinit::SamplerInfo(vk::Filter::eLinear, vk::Filter::eLinear, -1.0f,
 		1.0, vk::SamplerAddressMode::eClampToEdge);
 	
 	auto linearClampSamplerId = static_cast<size_t>(Render::SamplerType::eLinearClamp);
@@ -1094,13 +1094,13 @@ void Render::Backend::InitSamplers()
 
 	float maxAnisotropy = _gpuProperties.properties.limits.maxSamplerAnisotropy;
 
-	vk::SamplerCreateInfo linearRepeatSamplerInfo = vkinit::sampler_create_info(vk::Filter::eLinear, vk::Filter::eLinear, maxAnisotropy,
+	vk::SamplerCreateInfo linearRepeatSamplerInfo = vkinit::SamplerInfo(vk::Filter::eLinear, vk::Filter::eLinear, maxAnisotropy,
 		VK_LOD_CLAMP_NONE, vk::SamplerAddressMode::eRepeat);
 
 	auto linearRepeatSamplerId = static_cast<size_t>(Render::SamplerType::eLinearRepeatAnisotropic);
 	_samplers[linearRepeatSamplerId] = _device.createSampler(linearRepeatSamplerInfo);
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		for (auto& sampler : _samplers) {
 			_device.destroySampler(sampler);
 		}
@@ -1156,7 +1156,7 @@ void Render::Backend::InitImGui()
 
 	ImGui_ImplVulkan_CreateFontsTexture();
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.PushFunction([=]() {
 		ImGui_ImplVulkan_Shutdown();
 		_device.destroyDescriptorPool(imguiPool);
 	});
@@ -1246,9 +1246,9 @@ void Render::Pass::BuildPipeline()
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	auto setLayouts = backend->GetPDescriptorManager()->get_layouts(_usedDescSets);
+	auto setLayouts = backend->GetPDescriptorManager()->GetLayouts(_usedDescSets);
 
-	vk::PipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::PipelineLayoutInfo();
 	pipelineLayoutInfo.setSetLayouts(setLayouts);
 
 	if (_pushConstantRange.size > 0)
@@ -1260,7 +1260,7 @@ void Render::Pass::BuildPipeline()
 	vk::PipelineLayout pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 	_pso._pipelineLayout = pipelineLayout;
 
-	backend->_mainDeletionQueue.push_function([=](){
+	backend->_mainDeletionQueue.PushFunction([=](){
 		device.destroyPipelineLayout(pipelineLayout);
 	});
 
@@ -1296,10 +1296,10 @@ void Render::Pass::BuildPipeline()
 	// shader modules are now built into the pipelines, we don't need them anymore
 	for (auto& shader : _shaders)
 	{
-		shader.destroy();
+		shader.Destroy();
 	}
 
-	backend->_mainDeletionQueue.push_function([=]() {
+	backend->_mainDeletionQueue.PushFunction([=]() {
 		device.destroyPipeline(pipelineResVal.value[0]);
 	});
 }
@@ -1309,9 +1309,9 @@ void Render::Pass::BuildRTPipeline(const std::array<vk::PipelineShaderStageCreat
 {
 	auto* backend = Render::Backend::AcquireInstance();
 
-	auto setLayouts = backend->GetPDescriptorManager()->get_layouts(_usedDescSets);
+	auto setLayouts = backend->GetPDescriptorManager()->GetLayouts(_usedDescSets);
 
-	vk::PipelineLayoutCreateInfo rtPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+	vk::PipelineLayoutCreateInfo rtPipelineLayoutInfo = vkinit::PipelineLayoutInfo();
 	rtPipelineLayoutInfo.setSetLayouts(setLayouts);
 
 	if (_pushConstantRange.size > 0)
@@ -1324,7 +1324,7 @@ void Render::Pass::BuildRTPipeline(const std::array<vk::PipelineShaderStageCreat
 
 	_pso._pipelineLayout = pipelineLayout;
 
-	backend->_mainDeletionQueue.push_function([=]() {
+	backend->_mainDeletionQueue.PushFunction([=]() {
 		device.destroyPipelineLayout(pipelineLayout);
 	});
 
@@ -1344,10 +1344,10 @@ void Render::Pass::BuildRTPipeline(const std::array<vk::PipelineShaderStageCreat
 	// shader modules are now built into the pipelines, we don't need them anymore
 	for (auto& shader : _shaders)
 	{
-		shader.destroy();
+		shader.Destroy();
 	}
 
-	backend->_mainDeletionQueue.push_function([=]() {
+	backend->_mainDeletionQueue.PushFunction([=]() {
 		device.destroyPipeline(rtPipelineResVal.value);
 	});
 
@@ -1552,8 +1552,8 @@ void Render::Pass::Init(const InitInfo& initInfo)
 
 	for (int32_t i = 0; i < numShaderStages; ++i)
 	{
-		_shaders[i].create(backend->GetPDevice(), shaderFileNames[i]);
-		_shaderStages[i] = _shaders[i].get_stage_create_info();
+		_shaders[i].Create(backend->GetPDevice(), shaderFileNames[i]);
+		_shaderStages[i] = _shaders[i].GetStageCreateInfo();
 	}
 
 	_pushConstantRange.offset = 0;
@@ -1654,12 +1654,12 @@ std::array<vk::PipelineShaderStageCreateInfo, Render::Pass::RAY_TRACING_SHADER_G
 	for (auto& shaderName : shaderNames)
 	{
 		Render::Shader shader;
-		shader.create(backend->GetPDevice(), shaderName);
+		shader.Create(backend->GetPDevice(), shaderName);
 
 		_shaders.push_back(shader);
 
-		auto stageIndex = static_cast<int32_t>(Shader::get_rt_shader_index_from_file_name(shaderName));
-		stages[stageIndex] = shader.get_stage_create_info();
+		auto stageIndex = static_cast<int32_t>(Shader::GetRTShaderIndexFromFileName(shaderName));
+		stages[stageIndex] = shader.GetStageCreateInfo();
 	}
 
 	return stages;

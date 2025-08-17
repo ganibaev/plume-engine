@@ -80,18 +80,18 @@ public:
 
 	constexpr static RenderMode _renderMode = RenderMode::ePathTracing;
 
-	void init_backend_and_data(const InitData& initData);
+	void InitBackendAndData(const InitData& initData);
 
 	// initializes everything in the rendering system
-	void init(const InitData& initData);
+	void Init(const InitData& initData);
 
 	// shuts down the rendering system
-	void cleanup();
+	void Cleanup();
 
 	// draw loop
-	void render_frame();
+	void RenderFrame();
 
-	void setup_debug_ui_frame();
+	void SetupDebugUIFrame();
 
 	std::unordered_set<std::string> _supportedExtensions;
 
@@ -106,16 +106,16 @@ public:
 
 	bool _showDebugUi = false;
 
-	vk::DeviceSize align_up(vk::DeviceSize originalSize, vk::DeviceSize alignment);
+	vk::DeviceSize AlignUp(vk::DeviceSize originalSize, vk::DeviceSize alignment);
 
 	std::vector<AccelerationStructure> _bottomLevelASVec = {};
 	AccelerationStructure _topLevelAS = {};
 
 	RayPushConstants _rayConstants = {};
 
-	void switch_swapchain_image_layout(uint32_t swapchainImageIndex, bool beforeRendering);
-	void switch_intermediate_image_layout(bool beforeRendering);
-	void switch_frame_image_layout(Render::Image& image);
+	void SwitchSwapchainImageLayout(uint32_t swapchainImageIndex, bool beforeRendering);
+	void SwitchIntermediateImageLayout(bool beforeRendering);
+	void SwitchFrameImageLayout(Render::Image& image);
 
 	FrameContext _frameCtx;
 
@@ -136,7 +136,7 @@ public:
 	vk::StridedDeviceAddressRegionKHR _rchitRegion;
 	vk::StridedDeviceAddressRegionKHR _rcallRegion;
 
-	void copy_image(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
+	void CopyImage(vk::CommandBuffer cmd, vk::ImageAspectFlags aspectMask, vk::Image srcImage,
 		vk::ImageLayout srcImageLayout, vk::Image dstImage, vk::ImageLayout dstImageLayout, vk::Extent3D extent);
 
 	std::vector<Render::Object> _renderables;
@@ -148,54 +148,52 @@ public:
 	Render::Image _skybox;
 	Render::Object _skyboxObject;
 
-	void upload_cam_scene_data(Render::Object* first, size_t count);
+	void UploadCamSceneData(Render::Object* first, size_t count);
 
-	void gbuffer_geometry_pass();
-	void gbuffer_lighting_pass();
-	void sky_pass();
-	void fxaa_pass();
-	void denoiser_pass();
+	void GBufferGeometryPass();
+	void GBufferLightingPass();
+	void SkyPass();
+	void FXAAPass();
+	void DenoiserPass();
 
-	void debug_ui_pass(vk::CommandBuffer cmd, vk::ImageView targetImageView);
+	void DebugUIPass(vk::CommandBuffer cmd, vk::ImageView targetImageView);
 
-	void path_tracing_pass();
+	void PathTracingPass();
 
 private:
-	void init_frame_context();
+	void InitFrameContext();
 
-	void init_gbuffer_images();
+	void InitGBufferImages();
 
-	void init_descriptors();
+	void InitDescriptors();
 
-	void init_passes();
-	void init_geometry_pass();
-	void init_lighting_pass();
-	void init_postprocess_pass();
-	void init_sky_pass();
+	void InitPasses();
+	void InitGeometryPass();
+	void InitLightingPass();
+	void InitPostprocessPass();
+	void InitSkyPass();
 
-	void init_path_tracing_gbuffer_images();
-	void init_path_tracing_pass();
+	void InitPathTracingGBufferImages();
+	void InitPathTracingPass();
 
-	void init_render_scene();
+	void InitRenderScene();
 
-	void init_blas();
+	void InitBLAS();
 
-	void init_tlas();
+	void InitTLAS();
 
-	void init_rt_descriptors();
+	void InitRTDescriptors();
 
-	bool load_material_texture(Render::Image& tex, const std::string& texName, const std::string& matName,
+	bool LoadMaterialTexture(Render::Image& tex, const std::string& texName, const std::string& matName,
 		uint32_t texSlot, bool generateMipmaps = true, vk::Format format = vk::Format::eR8G8B8A8Srgb);
 
-	void load_skybox(Render::Image& skybox, const std::string& directory);
+	void LoadSkybox(Render::Image& skybox, const std::string& directory);
 
-	void load_images();
+	void LoadImages();
 
-	void reset_frame();
+	void ResetFrame();
 
-	void update_rt_frame();
-
-	void upload_mesh(Mesh& mesh);
+	void UpdateRTFrame();
 };
 
 } // namespace Render

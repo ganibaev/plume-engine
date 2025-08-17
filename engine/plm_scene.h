@@ -35,12 +35,12 @@ struct Model
 	std::vector<Mesh> meshes;
 	glm::mat4 transformMatrix = glm::identity<glm::mat4>();
 
-	bool load_assimp(std::string filePath);
+	bool LoadAssimp(std::string filePath);
 
-	void process_node(aiNode* node, const aiScene& scene);
-	void process_mesh(aiMesh* mesh, const aiScene& scene);
+	void ProcessNode(aiNode* node, const aiScene& scene);
+	void ProcessMesh(aiMesh* mesh, const aiScene& scene);
 
-	void load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName = nullptr) const;
+	void LoadTextureNames(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName = nullptr) const;
 };
 
 

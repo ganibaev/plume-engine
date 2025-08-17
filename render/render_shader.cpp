@@ -4,18 +4,18 @@
 #include <fstream>
 
 
-void Render::Shader::create(vk::Device* pDevice, std::string shaderFileName)
+void Render::Shader::Create(vk::Device* pDevice, std::string shaderFileName)
 {
 	_pDevice = pDevice;
-	_stage = get_shader_stage_from_file_name(shaderFileName);
+	_stage = GetShaderStageFromFileName(shaderFileName);
 
-	load_module(shaderFileName);
+	LoadModule(shaderFileName);
 
-	_stageCreateInfo = make_stage_create_info();
+	_stageCreateInfo = MakeStageCreateInfo();
 }
 
 
-void Render::Shader::load_module(std::string shaderFileName)
+void Render::Shader::LoadModule(std::string shaderFileName)
 {
 	std::string filePath = SHADER_BINARY_PATH + shaderFileName + ".spv";
 	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
@@ -28,7 +28,7 @@ void Render::Shader::load_module(std::string shaderFileName)
 	file.read((char*)buffer.data(), fileSize);
 	file.close();
 
-	vk::ShaderModuleCreateInfo smCreateInfo = vkinit::sm_create_info(buffer);
+	vk::ShaderModuleCreateInfo smCreateInfo = vkinit::ShaderModuleInfo(buffer);
 
 	ASSERT(_pDevice, "Invalid vk::Device");
 
@@ -38,7 +38,7 @@ void Render::Shader::load_module(std::string shaderFileName)
 }
 
 
-vk::PipelineShaderStageCreateInfo Render::Shader::make_stage_create_info() const
+vk::PipelineShaderStageCreateInfo Render::Shader::MakeStageCreateInfo() const
 {
 	vk::PipelineShaderStageCreateInfo info = {};
 
@@ -51,9 +51,9 @@ vk::PipelineShaderStageCreateInfo Render::Shader::make_stage_create_info() const
 }
 
 
-Render::Shader::RTStageIndices Render::Shader::get_rt_shader_index_from_file_name(std::string shaderName)
+Render::Shader::RTStageIndices Render::Shader::GetRTShaderIndexFromFileName(std::string shaderName)
 {
-	vk::ShaderStageFlagBits shaderStage = get_shader_stage_from_file_name(shaderName);
+	vk::ShaderStageFlagBits shaderStage = GetShaderStageFromFileName(shaderName);
 
 	Render::Shader::RTStageIndices stageIndex = {};
 
@@ -79,7 +79,7 @@ Render::Shader::RTStageIndices Render::Shader::get_rt_shader_index_from_file_nam
 }
 
 
-vk::ShaderStageFlagBits Render::Shader::get_shader_stage_from_file_name(std::string shaderFileName)
+vk::ShaderStageFlagBits Render::Shader::GetShaderStageFromFileName(std::string shaderFileName)
 {
 	ASSERT(shaderFileName.length() >= 5, "Invalid shader file name");
 
@@ -122,7 +122,7 @@ vk::ShaderStageFlagBits Render::Shader::get_shader_stage_from_file_name(std::str
 }
 
 
-void Render::Shader::destroy()
+void Render::Shader::Destroy()
 {
 	ASSERT(_pDevice, "Invalid vk::Device");
 

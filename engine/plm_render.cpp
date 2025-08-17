@@ -4,7 +4,7 @@
 #include "imgui_impl_vulkan.h"
 
 
-void Plume::RenderManager::init(Render::System::InitData& initData)
+void Plume::RenderManager::Init(Render::System::InitData& initData)
 {
 	// We initialize SDL and create a window with it. 
 	SDL_Init(SDL_INIT_VIDEO);
@@ -23,11 +23,11 @@ void Plume::RenderManager::init(Render::System::InitData& initData)
 	initData.pWindow = _pWindow;
 	initData.windowExtent = _windowExtent;
 
-	_renderSystem.init(initData);
+	_renderSystem.Init(initData);
 }
 
 
-void Plume::RenderManager::process_input_events(const std::array<Plume::InputManager::Event, Plume::InputManager::MAX_FRAME_EVENT_NUM>& queue)
+void Plume::RenderManager::ProcessInputEvents(const std::array<Plume::InputManager::Event, Plume::InputManager::MAX_FRAME_EVENT_NUM>& queue)
 {
 	bool relMode = false;
 	for (const auto& inputEvent : queue)
@@ -51,16 +51,16 @@ void Plume::RenderManager::process_input_events(const std::array<Plume::InputMan
 }
 
 
-void Plume::RenderManager::render_frame()
+void Plume::RenderManager::RenderFrame()
 {
-	_renderSystem.setup_debug_ui_frame();
-	_renderSystem.render_frame();
+	_renderSystem.SetupDebugUIFrame();
+	_renderSystem.RenderFrame();
 }
 
 
-void Plume::RenderManager::terminate()
+void Plume::RenderManager::Terminate()
 {
-	_renderSystem.cleanup();
+	_renderSystem.Cleanup();
 
 	if (_pWindow)
 	{
@@ -69,7 +69,7 @@ void Plume::RenderManager::terminate()
 }
 
 
-void Plume::RenderManager::setup_debug_ui_frame()
+void Plume::RenderManager::SetupDebugUIFrame()
 {
-	_renderSystem.setup_debug_ui_frame();
+	_renderSystem.SetupDebugUIFrame();
 }

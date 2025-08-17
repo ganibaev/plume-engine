@@ -90,24 +90,24 @@ public:
 		bool hasBindless = false;
 	};
 
-	void init(vk::Device* pDevice, DeletionQueue* pDeletionQueue);
+	void Init(vk::Device* pDevice, DeletionQueue* pDeletionQueue);
 
-	void allocate_sets();
-	void update_sets();
+	void AllocateSets();
+	void UpdateSets();
 
-	void register_buffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+	void RegisterBuffer(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 		const std::vector<BufferInfo>& bufferInfos, uint32_t binding, uint32_t numDescs = 1, bool isPerFrame = false);
 
-	void register_image(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+	void RegisterImage(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 		const std::vector<ImageInfo>& imageInfos, uint32_t binding, uint32_t numDescs = 1, bool isBindless = false,
 		bool isPerFrame = false);
 
-	void register_accel_structure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
+	void RegisterAccelStructure(RegisteredDescriptorSet descriptorSetType, vk::ShaderStageFlags shaderStages,
 		vk::AccelerationStructureKHR accelStructure, uint32_t binding, bool isPerFrame = false);
 
-	std::vector<vk::DescriptorSetLayout> get_layouts(DescriptorSetFlags usedDscMask) const;
+	std::vector<vk::DescriptorSetLayout> GetLayouts(DescriptorSetFlags usedDscMask) const;
 
-	std::vector<vk::DescriptorSet> get_descriptor_sets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const;
+	std::vector<vk::DescriptorSet> GetDescriptorSets(DescriptorSetFlags usedDscMask, uint8_t perFrameId) const;
 
 	static constexpr uint32_t NUM_DESCRIPTOR_SETS = static_cast<int>(RegisteredDescriptorSet::eMaxValue);
 private:

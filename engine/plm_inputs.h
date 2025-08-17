@@ -37,27 +37,27 @@ public:
 		};
 	};
 
-	void set_camera(Plume::Camera camera) { _camera = camera; }
-	const Plume::Camera* get_p_camera() const { return &_camera; }
+	void SetCamera(Plume::Camera camera) { _camera = camera; }
+	const Plume::Camera* GetPCamera() const { return &_camera; }
 
-	const std::array<Event, MAX_FRAME_EVENT_NUM>& get_event_queue() const { return _eventQueue; }
+	const std::array<Event, MAX_FRAME_EVENT_NUM>& GetEventQueue() const { return _eventQueue; }
 
-	void poll_events();
+	void PollEvents();
 
-	bool should_quit() const { return _shouldQuit; }
+	bool ShouldQuit() const { return _shouldQuit; }
 
-	static CameraMovement sdl_key_to_movement(SDL_Keycode sym);
+	static CameraMovement SDLKeyToMovement(SDL_Keycode sym);
 
 private:
-	void clear_event_queue();
-	void process_general_queue_events();
+	void ClearEventQueue();
+	void ProcessGeneralQueueEvents();
 
-	void on_mouse_motion_callback();
-	void on_mouse_scroll_callback(float yOffset);
+	void OnMouseMotionCallback();
+	void OnMouseScrollCallback(float yOffset);
 
-	void process_movement();
+	void ProcessMovement();
 
-	void on_keyboard_event_callback(SDL_Keycode sym, bool keyDown);
+	void OnKeyboardEventCallback(SDL_Keycode sym, bool keyDown);
 
 	constexpr static float _camSpeed = 0.2f;
 

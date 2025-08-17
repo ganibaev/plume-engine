@@ -13,20 +13,20 @@ void main(int argc, char* argv[])
 	lightManager.DefaultInit();
 
 	Render::System::InitData initData;
-	initData.pCam = inputSystem.get_p_camera();
+	initData.pCam = inputSystem.GetPCamera();
 	initData.pLightManager = &lightManager;
 	initData.pScene = &scene;
 
 	Plume::RenderManager renderer;
-	renderer.init(initData);
+	renderer.Init(initData);
 
-	while (!inputSystem.should_quit())
+	while (!inputSystem.ShouldQuit())
 	{
-		inputSystem.poll_events();
+		inputSystem.PollEvents();
 
-		renderer.process_input_events(inputSystem.get_event_queue());
-		renderer.render_frame();
+		renderer.ProcessInputEvents(inputSystem.GetEventQueue());
+		renderer.RenderFrame();
 	}
 
-	renderer.terminate();
+	renderer.Terminate();
 }

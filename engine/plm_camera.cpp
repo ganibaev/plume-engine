@@ -4,7 +4,7 @@
 #include <SDL_vulkan.h>
 
 
-void Plume::Camera::process_movement(CameraMovement direction, float timeDelta)
+void Plume::Camera::ProcessMovement(CameraMovement direction, float timeDelta)
 {
 	float velocity = _movementSpeed * timeDelta;
 	switch (direction)
@@ -33,7 +33,7 @@ void Plume::Camera::process_movement(CameraMovement direction, float timeDelta)
 }
 
 
-void Plume::Camera::process_camera_motion(float xOffset, float yOffset, bool constrainPitch /* = true */)
+void Plume::Camera::ProcessCameraMotion(float xOffset, float yOffset, bool constrainPitch /* = true */)
 {
 	xOffset *= _mouseSensitivity;
 	yOffset *= _mouseSensitivity;
@@ -46,20 +46,20 @@ void Plume::Camera::process_camera_motion(float xOffset, float yOffset, bool con
 		_pitch = glm::clamp(_pitch, -89.0f, 89.0f);
 	}
 
-	update_camera_vectors();
+	UpdateCameraVectors();
 }
 
 
-void Plume::Camera::process_mouse_scroll(float yOffset)
+void Plume::Camera::ProcessMouseScroll(float yOffset)
 {
 	_zoom -= yOffset * 2;
 	_zoom = glm::clamp(_zoom, 1.0f, 70.0f);
 }
 
 
-CameraDataGPU Plume::Camera::make_gpu_camera_data(const Plume::Camera& lastFrameCamera, WindowExtent windowExtent) const
+CameraDataGPU Plume::Camera::MakeGPUCameraData(const Plume::Camera& lastFrameCamera, WindowExtent windowExtent) const
 {
-	const glm::mat4 view = get_view_matrix();
+	const glm::mat4 view = GetViewMatrix();
 
 	glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(_zoom),
 		windowExtent.width / static_cast<float>(windowExtent.height), 0.1f, DRAW_DISTANCE);
@@ -73,7 +73,7 @@ CameraDataGPU Plume::Camera::make_gpu_camera_data(const Plume::Camera& lastFrame
 	resCameraData.invProj = glm::inverse(projection);
 	resCameraData.invViewProj = glm::inverse(resCameraData.viewproj);
 
-	glm::mat4 prevView = lastFrameCamera.get_view_matrix();
+	glm::mat4 prevView = lastFrameCamera.GetViewMatrix();
 	glm::mat4 prevProjection = glm::perspectiveRH_ZO(glm::radians(lastFrameCamera._zoom),
 		windowExtent.width / static_cast<float>(windowExtent.height), 0.1f, DRAW_DISTANCE);
 	prevProjection[1][1] *= -1;
@@ -84,7 +84,7 @@ CameraDataGPU Plume::Camera::make_gpu_camera_data(const Plume::Camera& lastFrame
 }
 
 
-void Plume::Camera::update_camera_vectors()
+void Plume::Camera::UpdateCameraVectors()
 {
 	glm::vec3 front = {};
 	front.x = cos(glm::radians(_yaw)) * cos(glm::radians(_pitch));

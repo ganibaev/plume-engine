@@ -4,7 +4,7 @@
 #include <iostream>
 
 
-bool Plume::Model::load_assimp(std::string filePath)
+bool Plume::Model::LoadAssimp(std::string filePath)
 {
 	Scene& parentScene = *pParentScene;
 
@@ -32,10 +32,10 @@ bool Plume::Model::load_assimp(std::string filePath)
 		std::string matName = material->GetName().C_Str();
 		std::string diffTexName = "";
 
-		load_texture_names(material, aiTextureType_DIFFUSE, parentScene.diffuseTexNames, &diffTexName);
-		load_texture_names(material, aiTextureType_METALNESS, parentScene.metallicTexNames);
-		load_texture_names(material, aiTextureType_DIFFUSE_ROUGHNESS, parentScene.roughnessTexNames);
-		load_texture_names(material, aiTextureType_NORMALS, parentScene.normalMapNames);
+		LoadTextureNames(material, aiTextureType_DIFFUSE, parentScene.diffuseTexNames, &diffTexName);
+		LoadTextureNames(material, aiTextureType_METALNESS, parentScene.metallicTexNames);
+		LoadTextureNames(material, aiTextureType_DIFFUSE_ROUGHNESS, parentScene.roughnessTexNames);
+		LoadTextureNames(material, aiTextureType_NORMALS, parentScene.normalMapNames);
 
 		if (matName.empty())
 		{
@@ -44,27 +44,27 @@ bool Plume::Model::load_assimp(std::string filePath)
 		parentScene.matNames.push_back(matName);
 	}
 
-	process_node(scene->mRootNode, *scene);
+	ProcessNode(scene->mRootNode, *scene);
 	return true;
 }
 
 
-void Plume::Model::process_node(aiNode* node, const aiScene& scene)
+void Plume::Model::ProcessNode(aiNode* node, const aiScene& scene)
 {
 	for (size_t i = 0; i < node->mNumMeshes; ++i)
 	{
 		aiMesh* mesh = scene.mMeshes[node->mMeshes[i]];
-		process_mesh(mesh, scene);
+		ProcessMesh(mesh, scene);
 	}
 
 	for (size_t i = 0; i < node->mNumChildren; ++i)
 	{
-		process_node(node->mChildren[i], scene);
+		ProcessNode(node->mChildren[i], scene);
 	}
 }
 
 
-void Plume::Model::process_mesh(aiMesh* mesh, const aiScene& scene)
+void Plume::Model::ProcessMesh(aiMesh* mesh, const aiScene& scene)
 {
 	Mesh newMesh = {};
 
@@ -121,7 +121,7 @@ void Plume::Model::process_mesh(aiMesh* mesh, const aiScene& scene)
 }
 
 
-void Plume::Model::load_texture_names(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName) const
+void Plume::Model::LoadTextureNames(aiMaterial* mat, aiTextureType type, std::vector<std::string>& names, std::string* curName) const
 {
 	size_t texCount = mat->GetTextureCount(type);
 	if (texCount == 0)
@@ -154,7 +154,7 @@ void Plume::Scene::DefaultInit()
 	
 	Model suzanneModel;
 	suzanneModel.pParentScene = this;
-	suzanneModel.load_assimp("../../../assets/suzanne/Suzanne.gltf");
+	suzanneModel.LoadAssimp("../../../assets/suzanne/Suzanne.gltf");
 	suzanneModel.transformMatrix = glm::translate(glm::mat4{ 1.0f }, glm::vec3(2.8f, -8.0f, 0));
 
 	models["suzanne"] = suzanneModel;
@@ -162,7 +162,7 @@ void Plume::Scene::DefaultInit()
 
 	Model sponza;
 	sponza.pParentScene = this;
-	sponza.load_assimp("../../../assets/sponza/Sponza.gltf");
+	sponza.LoadAssimp("../../../assets/sponza/Sponza.gltf");
 	sponza.transformMatrix = glm::translate(glm::vec3{ 5, -10, 0 }) * glm::rotate(glm::radians(90.0f),
 		glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4{ 1.0f }, glm::vec3(0.05f, 0.05f, 0.05f));
 
@@ -171,7 +171,7 @@ void Plume::Scene::DefaultInit()
 
 	Model cube;
 	cube.pParentScene = this;
-	cube.load_assimp("../../../assets/cube.gltf");
+	cube.LoadAssimp("../../../assets/cube.gltf");
 	cube.transformMatrix = glm::scale(glm::mat4{ 1.0f }, glm::vec3(6000.0f, 6000.0f, 6000.0f));
 
 	models["skybox"] = cube;

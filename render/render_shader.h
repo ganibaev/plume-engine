@@ -10,10 +10,10 @@ namespace Render
 class Shader
 {
 public:
-	void create(vk::Device* pDevice, std::string shaderFileName);
-	void destroy();
+	void Create(vk::Device* pDevice, std::string shaderFileName);
+	void Destroy();
 
-	vk::PipelineShaderStageCreateInfo get_stage_create_info() const { return _stageCreateInfo; }
+	vk::PipelineShaderStageCreateInfo GetStageCreateInfo() const { return _stageCreateInfo; }
 
 	enum class RTStageIndices
 	{
@@ -25,15 +25,15 @@ public:
 		eShaderGroupCount
 	};
 
-	static RTStageIndices get_rt_shader_index_from_file_name(std::string shaderFileName);
+	static RTStageIndices GetRTShaderIndexFromFileName(std::string shaderFileName);
 
 private:
 	static constexpr const char* SHADER_BINARY_PATH = "../../../render/shader_binaries/";
 
-	static vk::ShaderStageFlagBits get_shader_stage_from_file_name(std::string shaderFileName);
+	static vk::ShaderStageFlagBits GetShaderStageFromFileName(std::string shaderFileName);
 
-	void load_module(std::string shaderFileName);
-	vk::PipelineShaderStageCreateInfo make_stage_create_info() const;
+	void LoadModule(std::string shaderFileName);
+	vk::PipelineShaderStageCreateInfo MakeStageCreateInfo() const;
 
 	vk::Device* _pDevice = nullptr;
 
