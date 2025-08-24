@@ -23,12 +23,13 @@ layout (set = 0, binding = 1) uniform sampler2D normalTex;
 layout (set = 0, binding = 2) uniform sampler2D albedoTex;
 layout (set = 0, binding = 3) uniform sampler2D metallicRoughnessTex;
 
-layout (set = 2 + TLAS_SLOT, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout (set = 2 + TLAS_SLOT, binding = 0) uniform accelerationStructureEXT TLAS;
 
-bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
+
+bool ShadowRayQueryHit(vec3 origin, vec3 direction, float tMin, float tMax)
 {
 	rayQueryEXT shadowQuery;
-	rayQueryInitializeEXT(shadowQuery, topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, tMin,
+	rayQueryInitializeEXT(shadowQuery, TLAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, tMin,
 		direction, tMax);
 
 	while (rayQueryProceedEXT(shadowQuery))
@@ -37,6 +38,7 @@ bool shadowRayHit(vec3 origin, vec3 direction, float tMin, float tMax)
 
 	return rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 }
+
 
 vec3 ACESTonemap(vec3 color)
 {
@@ -87,7 +89,7 @@ void main()
 
 	vec3 dirContrib = BRDF(dirToLightDir, V, N, metallic, roughness, diffuseMaterial) * dirDotNL * dirRadiance;
 
-	if (shadowRayHit(fragPosWorld, dirToLightDir, 0.01, 10000.0))
+	if (ShadowRayQueryHit(fragPosWorld, dirToLightDir, 0.01, 10000.0))
 	{
 		dirContrib = vec3(0.0);
 	}
@@ -109,7 +111,7 @@ void main()
 		float pointDotNL = clamp(dot(N, L), 0.0, 1.0);
 
 		vec3 contrib = BRDF(L, V, N, metallic, roughness, diffuseMaterial) * pointDotNL * radiance;
-		if (shadowRayHit(fragPosWorld, L, 0.01, distancePoint))
+		if (ShadowRayQueryHit(fragPosWorld, L, 0.01, distancePoint))
 		{
 			continue;
 		}

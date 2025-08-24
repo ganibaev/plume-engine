@@ -9,16 +9,16 @@
 #include "host_device_common.h"
 #include "ray_common.glsl"
 
-layout (location = 0) rayPayloadInEXT hitPayload prd;
+layout (location = 0) rayPayloadInEXT RayPayload rayPayload;
 hitAttributeEXT vec3 hitUV;
 
 layout (buffer_reference, scalar) buffer Vertices
 {
-	Vertex v[];
+	Vertex VERTICES[];
 };
 layout (buffer_reference, scalar) buffer Indices
 {
-	uvec3 i[];
+	uvec3 INDICES[];
 };
 
 layout (set = eGeneralRTX, binding = 0) uniform accelerationStructureEXT topLevelAS;
@@ -40,13 +40,15 @@ void main()
 	mat4x3 objectToWorld = gl_ObjectToWorldEXT;
 	mat4x3 worldToObject = gl_WorldToObjectEXT;
 	
-	HitProperties hp = getHitProperties(instId, primId, objectToWorld, worldToObject, hitUV.xy);
+	HitProperties hp = GetHitProperties(instId, primId, objectToWorld, worldToObject, hitUV.xy);
 
-	prd.hitPosition = hp.worldPos;
-	prd.matID = hp.matID;
-	prd.texCoord = hp.texCoord;
-	prd.tangent = hp.tangent;
-	prd.bitangent = hp.bitangent;
-	prd.emittance = hp.emittance;
-	prd.normal = hp.normal;
+	rayPayload.hasMissed = false;
+
+	rayPayload.hitPosition = hp.worldPos;
+	rayPayload.matID = hp.matID;
+	rayPayload.texCoord = hp.texCoord;
+	rayPayload.tangent = hp.tangent;
+	rayPayload.bitangent = hp.bitangent;
+	rayPayload.emittance = hp.emittance;
+	rayPayload.normal = hp.normal;
 }

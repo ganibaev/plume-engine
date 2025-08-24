@@ -2,16 +2,14 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
-#extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_ARB_shader_clock : enable
 #extension GL_NV_shader_invocation_reorder : enable
 
-#define FLT_EPS 0.00000001
-
 #include "host_device_common.h"
+#include "common.glsl"
 
-layout (set = eGeneralRTX, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout (set = eGeneralRTX, binding = 0) uniform accelerationStructureEXT TLAS;
 
 layout (set = ePerFrame, binding = 0, rgba32f) uniform image2D outImage;
 layout (set = ePerFrame, binding = 1) uniform sampler2D frameTexture;
@@ -20,8 +18,9 @@ layout (set = ePerFrame, binding = 3) uniform sampler2D prevPositions;
 
 layout (set = eGlobal, binding = 0) uniform CameraBuffer
 {
-	CameraDataGPU camData;
-} camSceneData;
+	CameraDataGPU CAM_DATA;
+	LightingData LIGHTING_DATA;
+};
 
 layout (set = eObjectData, binding = 0, scalar) readonly buffer ObjectBuffer
 {
@@ -42,11 +41,12 @@ layout (push_constant) uniform constants
 
 layout (buffer_reference, scalar) buffer Vertices
 {
-	Vertex v[];
+	Vertex VERTICES[];
 };
+
 layout (buffer_reference, scalar) buffer Indices
 {
-	uvec3 i[];
+	uvec3 INDICES[];
 };
 
 layout(location = 0) hitObjectAttributeNV vec3 hitUV;
@@ -57,8 +57,9 @@ layout(location = 0) hitObjectAttributeNV vec3 hitUV;
 #include "hit_properties.glsl"
 #include "bsdf.glsl"
 
-layout (location = 0) rayPayloadEXT hitPayload prd;
+layout (location = 0) rayPayloadEXT RayPayload rayPayload;
 
+#include "path_tracing_utils.glsl"
 
 struct RayData
 {
@@ -67,50 +68,40 @@ struct RayData
   vec3 weight;
 };
 
-vec2 hiresToLowres(ivec2 ipos, vec2 jitterOffset)
-{
-    vec2 inputSize = vec2(gl_LaunchSizeEXT);
-    vec2 outputSize = vec2(gl_LaunchSizeEXT);
 
-    return (vec2(ipos) + vec2(0.5)) * (inputSize / outputSize) - jitterOffset;
-}
-
-float getSampleWeight(vec2 delta, float scale)
-{
-    return clamp(1 - scale * dot(delta, delta), 0, 1);
-}
-
-RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
+RayData IntegrateHitPoint(RayData ray, HitProperties hitProperties, inout uint seed)
 {
 	vec3 L = vec3(0.0);
-	vec3 V = normalize(-r.direction);
+	vec3 V = normalize(-ray.direction);
 
 	float pdf = 0.0;
 	vec3 brdf = vec3(0.0);
 
-	vec3 rayOrigin = hp.worldPos;
+	vec3 rayOrigin = hitProperties.worldPos;
 
-	int matID = hp.matID;
+	int matID = hitProperties.matID;
 
-	if (prd.depth >= 100)
+	if (rayPayload.hasMissed)
 	{
-		return r;
+		return ray;
 	}
 
-	vec4 albedo = texture(diffuseTex[matID], hp.texCoord);
-	float metallic = texture(metallicTex[matID], hp.texCoord).b;
-	float roughness = texture(roughnessTex[matID], hp.texCoord).g;
+	vec4 albedo = texture(diffuseTex[matID], hitProperties.texCoord);
+	float metallic = texture(metallicTex[matID], hitProperties.texCoord).b;
+	float roughness = texture(roughnessTex[matID], hitProperties.texCoord).g;
 
-	vec3 emittance = hp.emittance;
+	vec3 emittance = hitProperties.emittance;
 
 	float diffuseProb = 0.5 * (1.0 - metallic);
 	float specProb = 1.0 - diffuseProb;
 
-	vec3 T = hp.tangent;
-	vec3 B = hp.bitangent;
-	vec3 N = hp.normal;
+	vec3 T = hitProperties.tangent;
+	vec3 B = hitProperties.bitangent;
+	vec3 N = hitProperties.normal;
 
-	if (rng(seed) < diffuseProb)
+	bool isDiffusePath = rng(seed) < diffuseProb;
+
+	if (isDiffusePath)
 	{
 		L = sampleHemisphere(seed, T, B, N);
 
@@ -131,19 +122,20 @@ RayData integrateHitPoint(RayData r, HitProperties hp, inout uint seed)
 		pdf *= specProb;
 	}
 
-	r.origin = rayOrigin;
-	r.direction = L;
-	prd.hitValue = emittance;
+	ray.origin = rayOrigin;
+	ray.direction = L;
+
+	rayPayload.hitValue = emittance;
 	if (pdf > 0.001)
 	{
-		r.weight = brdf * abs(dot(N, r.direction)) / pdf;
+		ray.weight = brdf * max(0.0, dot(N, ray.direction)) / pdf;
 	}
 	else
 	{
-		r.weight = vec3(0.0);
+		ray.weight = vec3(0.0);
 	}
 
-	return r;
+	return ray;
 }
 
 
@@ -158,137 +150,70 @@ void main()
 
 	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5) + subpixelJitter;
 	const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-	vec2 d = inUV * 2.0 - 1.0;
+	vec2 clipUV = inUV * 2.0 - 1.0;
 
-	vec4 origin = camSceneData.camData.invView[3];
-	vec4 target = camSceneData.camData.invProj * vec4(d.x, d.y, 1, 1);
-	vec4 direction = camSceneData.camData.invView * vec4(normalize(target.xyz), 0);
+	vec4 origin = CAM_DATA.invView[3];
+	vec4 target = CAM_DATA.invProj * vec4(clipUV.x, clipUV.y, 1, 1);
+	vec4 direction = CAM_DATA.invView * vec4(normalize(target.xyz), 0);
 
 	uint rayFlags = gl_RayFlagsNoneEXT;
 	float tMin = 0.001;
 	float tMax = 10000.0;
 
-	RayData r;
+	RayData ray;
 
-	prd.hitValue = vec3(0.0);
-	prd.depth = 0;
-	r.origin = origin.xyz;
-	r.direction = direction.xyz;
-	r.weight = vec3(0.0);
-	prd.hitPosition = origin.xyz + direction.xyz * tMax;
-	prd.matID = -1;
+	rayPayload.hasMissed = false;
+	rayPayload.hitValue = vec3(0.0);
+	rayPayload.depth = 0;
+	ray.origin = origin.xyz;
+	ray.direction = direction.xyz;
+	ray.weight = vec3(0.0);
+	rayPayload.hitPosition = origin.xyz + direction.xyz * tMax;
+	rayPayload.matID = -1;
 
 	vec3 curWeight = vec3(1.0);
 	vec3 hitValue = vec3(0.0);
 
-	vec3 primaryPos = vec3(0.0);
+	vec3 primaryHitPos = vec3(0.0);
 
-	HitProperties hp;
-	hp.matID = -1;
+	HitProperties hitProperties;
+	InitHitProperties(hitProperties);
 
 	bool primaryMiss = true;
-	float q = -1.0;
+	float terminationProbability = 0.0;
 
-	for (; prd.depth < rayConstants.MAX_BOUNCES + 1; ++prd.depth)
+	for (; !rayPayload.hasMissed && rayPayload.depth < rayConstants.MAX_BOUNCES + 1; ++rayPayload.depth)
 	{
-		if (prd.depth > 0)
+		if (rayPayload.depth > 0)
 		{
 			primaryMiss = false;
 		}
 
-		if (rayConstants.USE_SHADER_EXECUTION_REORDERING)
+		hitProperties = TraceRay(ray.origin, ray.direction, tMin, tMax, rayFlags);
+
+		ray = IntegrateHitPoint(ray, hitProperties, seed);
+
+		hitValue += rayPayload.hitValue * curWeight;
+		curWeight *= ray.weight;
+
+		if (rayPayload.depth == 0)
 		{
-			hitObjectNV hObj;
-			hitObjectRecordEmptyNV(hObj);
-
-			hitObjectTraceRayNV(hObj,
-								topLevelAS,	       // TLAS
-								rayFlags,		   // flags
-								0xFF,			   // cull mask
-								0,				   // SBT record offset
-								0,				   // SBT record stride
-								0,				   // miss shader index
-								r.origin,	       // ray origin
-								tMin,			   // ray min range
-								r.direction,       // ray direction
-								tMax,			   // ray max range
-								0				   // ray payload location
-			);
-
-			reorderThreadNV(hObj);
-			hitObjectGetAttributesNV(hObj, 0);
-
-			if (hitObjectIsHitNV(hObj))
-			{
-				int instId = hitObjectGetInstanceCustomIndexNV(hObj);
-				int primId = hitObjectGetPrimitiveIndexNV(hObj);
-				mat4x3 objectToWorld = hitObjectGetObjectToWorldNV(hObj);
-				mat4x3 worldToObject = hitObjectGetWorldToObjectNV(hObj);
-
-				if (primId >= 0 && instId >= 0)
-				{
-					hp = getHitProperties(instId, primId, objectToWorld, worldToObject, hitUV.xy);
-				}
-			}
-			else
-			{
-				// prd.hitValue = texture(skyboxSampler, normalize(hitObjectGetWorldRayDirectionNV(hObj))).rgb;
-				prd.hitValue = vec3(253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f) * 5;
-				// end path
-				prd.depth = 100;
-				prd.matID = -1;
-
-				hp.worldPos = vec3(10000.0);
-			}
-		}
-		else
-		{
-			traceRayEXT(topLevelAS,	   // TLAS
-					rayFlags,		   // flags
-					0xFF,			   // cull mask
-					0,				   // SBT record offset
-					0,				   // SBT record stride
-					0,				   // miss shader index
-					r.origin,	       // ray origin
-					tMin,			   // ray min range
-					r.direction,       // ray direction
-					tMax,			   // ray max range
-					0				   // ray payload location
-			);
-
-			hp.texCoord = prd.texCoord;
-			hp.worldPos = prd.hitPosition;
-			hp.tangent = prd.tangent;
-			hp.bitangent = prd.bitangent;
-			hp.normal = prd.normal;
-			hp.emittance = prd.emittance;
-			hp.matID = prd.matID;
-		}
-
-		hitValue += prd.hitValue * curWeight;
-
-		r = integrateHitPoint(r, hp, seed);
-
-		curWeight *= r.weight;
-
-		if (prd.depth == 0)
-		{
-			primaryPos = hp.worldPos;
+			primaryHitPos = hitProperties.worldPos;
 		}
 
 		// Russian roulette path termination
-		if (prd.depth > 2 && prd.depth < 80)
+		if (rayPayload.depth > 2)
 		{
-			q = max(0.05f, 1.f - max(r.weight.r, max(r.weight.g, r.weight.b)));
-			if (rng(seed) < q)
+			terminationProbability = max(0.05f, 1.f - max(ray.weight.r, max(ray.weight.g, ray.weight.b)));
+			if (rng(seed) < terminationProbability)
 			{
 				break;
 			}
-			curWeight /= (1.0 - q);
+			curWeight /= (1.0 - terminationProbability);
 		}
 	}
 
-	imageStore(positionsImage, ivec2(gl_LaunchIDEXT.xy), vec4(primaryPos, 1.0));
+	imageStore(positionsImage, ivec2(gl_LaunchIDEXT.xy), vec4(primaryHitPos, 1.0));
 
 	vec3 resValue = hitValue;
 
@@ -298,45 +223,15 @@ void main()
 
 		vec2 motion = vec2(0.0);
 
-		float a = 0.1;
+		float currentFrameWeight = 0.1;
 
 		if (rayConstants.USE_MOTION_VECTORS)
 		{
-			vec3 posWsCurr = primaryPos;
-			vec3 posWsPrev = primaryPos;
-
-			vec4 screenPosCurr = (camSceneData.camData.viewproj * vec4(posWsCurr, 1));
-			screenPosCurr /= screenPosCurr.w;
-
-			vec4 screenPosPrev = (camSceneData.camData.prevViewProj * vec4(posWsPrev, 1));
-			screenPosPrev /= screenPosPrev.w;
-
-			vec2 prevUV = screenPosPrev.xy * 0.5 + 0.5;
-			vec2 currUV = screenPosCurr.xy * 0.5 + 0.5;
-			motion.xy = prevUV - currUV + vec2(0.5) / vec2(gl_LaunchSizeEXT.xy);
-
-			float uvDiffLength = length(motion);
-
-			vec2 nearestRenderPos = hiresToLowres(ivec2(gl_LaunchIDEXT.xy), subpixelJitter);
-			ivec2 intRenderPos = ivec2(round(nearestRenderPos.x), round(nearestRenderPos.y));
-			intRenderPos = clamp(intRenderPos, ivec2(0), ivec2(gl_LaunchSizeEXT.x - 1, gl_LaunchSizeEXT.y - 1));
-
-			float sampleWeight = getSampleWeight(nearestRenderPos - intRenderPos, 1.0);
-
-			a = clamp(max(smoothstep(0, 1.0, uvDiffLength), sampleWeight) * 0.1, 0.0, 1.0);
-
-			vec3 oldPosition = texture(prevPositions, frameUV + motion).xyz;
-
-			bool posRejected = length(oldPosition - primaryPos) > 2.5;
-
-			if (clamp(prevUV, 0.0, 1.0) != prevUV || posRejected)
-			{
-				a = 1.0;
-			}
+			currentFrameWeight = CalculateCurrentFrameWeightAndMotion(primaryHitPos, frameUV, subpixelJitter, motion);
 		}
 		else
 		{
-			a = 1.0 / float(rayConstants.frame + 1);
+			currentFrameWeight = 1.0 / float(rayConstants.frame + 1);
 		}
 
 		vec3 oldColor = vec3(0.0);
@@ -352,11 +247,11 @@ void main()
 
 		if (primaryMiss)
 		{
-			resValue = prd.hitValue;
+			resValue = rayPayload.hitValue;
 		}
 		else
 		{
-			resValue = mix(oldColor, hitValue, a);
+			resValue = mix(oldColor, hitValue, currentFrameWeight);
 		}
 	}
 

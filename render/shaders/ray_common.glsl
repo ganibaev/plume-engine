@@ -1,5 +1,10 @@
-struct hitPayload
+#if !defined(RAY_COMMON_GLSL)
+#define RAY_COMMON_GLSL
+
+struct RayPayload
 {
+	bool hasMissed;
+
 	vec3 hitValue;
 	int depth;
 	vec3 hitPosition;
@@ -11,5 +16,16 @@ struct hitPayload
 	vec3 normal;
 	vec3 emittance;
 
-	vec2 pad;
+	float pad;
 };
+
+
+void OnRayMiss(inout RayPayload rayPayload, in vec3 missValue)
+{
+	rayPayload.hitValue = missValue;
+	// end path
+	rayPayload.hasMissed = true;
+	rayPayload.matID = -1;
+}
+
+#endif // RAY_COMMON_GLSL

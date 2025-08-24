@@ -9,16 +9,16 @@
 #include "host_device_common.h"
 #include "ray_common.glsl"
 
-layout (location = 0) rayPayloadInEXT hitPayload prd;
+layout (location = 0) rayPayloadInEXT RayPayload rayPayload;
 hitAttributeEXT vec3 hitUV;
 
 layout(buffer_reference, scalar) buffer Vertices
 {
-	Vertex v[];
+	Vertex VERTICES[];
 };
 layout(buffer_reference, scalar) buffer Indices
 {
-	uvec3 i[];
+	uvec3 INDICES[];
 };
 
 layout (set = eObjectData, binding = 0, scalar) readonly buffer ObjectBuffer
@@ -36,11 +36,11 @@ void main()
 
 	int matID = currentObject.matIndex;
 
-	uvec3 triangleInd = curIndices.i[gl_PrimitiveID];
+	uvec3 triangleInd = curIndices.INDICES[gl_PrimitiveID];
 
-	Vertex v0 = curVertices.v[triangleInd.x];
-	Vertex v1 = curVertices.v[triangleInd.y];
-	Vertex v2 = curVertices.v[triangleInd.z];
+	Vertex v0 = curVertices.VERTICES[triangleInd.x];
+	Vertex v1 = curVertices.VERTICES[triangleInd.y];
+	Vertex v2 = curVertices.VERTICES[triangleInd.z];
 
 	const vec3 barycentrics = vec3(1.0 - hitUV.x - hitUV.y, hitUV.x, hitUV.y);
 

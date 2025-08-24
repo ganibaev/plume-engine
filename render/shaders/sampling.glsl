@@ -1,6 +1,5 @@
-#ifndef PI
-#define PI 3.1415926535897932384626433832795
-#endif
+#if !defined(SAMPLING_GLSL)
+#define SAMPLING_GLSL
 
 // From Zafar, Olano, and Curtis, "GPU Random Numbers via the Tiny Encryption Algorithm"
 uint tea(uint val0, uint val1)
@@ -79,3 +78,5 @@ vec3 sampleGGX(float roughness, inout uint seed, in vec3 x, in vec3 y, in vec3 z
 
 	return direction;
 }
+
+#endif // SAMPLING_GLSL

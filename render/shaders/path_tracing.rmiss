@@ -6,15 +6,14 @@
 #include "host_device_common.h"
 #include "ray_common.glsl"
 
-layout (location = 0) rayPayloadInEXT hitPayload prd;
+layout (location = 0) rayPayloadInEXT RayPayload rayPayload;
 
 layout (set = eSkybox, binding = 0) uniform samplerCube skyboxSampler;
 
 void main()
 {
-	// prd.hitValue = texture(skyboxSampler, normalize(gl_WorldRayDirectionEXT)).rgb;
-	prd.hitValue = vec3(253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f) * 5;
-	// end path
-	prd.depth = 100;
-	prd.matID = -1;
+//	vec3 rayMissDirection = normalize(gl_WorldRayDirectionEXT);
+//	vec3 missValue = texture(skyboxSampler, rayMissDirection).rgb;
+	vec3 missValue = vec3(253.0f / 255.0f, 251.0f / 255.0f, 211.0f / 255.0f) * 5;
+	OnRayMiss(rayPayload, missValue);
 }
