@@ -68,5 +68,5 @@ struct DeletionQueue {
     }                                                                          \
     while (false)
 #else
-#define ASSERT_VK(condition, message) do { } while (false)
+#define ASSERT_VK(condition, message) do { VkResult vkRes = static_cast<VkResult>(condition); } while (false)
 #endif
